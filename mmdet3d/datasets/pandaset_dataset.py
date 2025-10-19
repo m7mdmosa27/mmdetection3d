@@ -300,7 +300,11 @@ class PandaSetDataset(Det3DDataset):
         if self.modality.get('use_camera', False) and 'images' in input_dict:
             for cam_id, img_info in input_dict['images'].items():
                 img_p = img_info.get('img_path', None)
-                if isinstance(img_p, str) and not os.path.isabs(img_p):
+                prefix_img = self.data_prefix.get('img', '') if isinstance(self.data_prefix, dict) else ''
+                if (isinstance(img_p, str)
+                        and not os.path.isabs(img_p)
+                        and not (prefix_img and img_p.startswith(prefix_img))
+                        and not (isinstance(self.data_root, str) and img_p.startswith(self.data_root))):
                     if cam_id in self.data_prefix:
                         cam_prefix = self.data_prefix[cam_id]
                     else:
