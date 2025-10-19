@@ -149,6 +149,7 @@ test_dataloader = None
 train_cfg = dict(by_epoch=True, max_epochs=12, val_interval=0)
 val_cfg = None
 test_cfg = None
+val_evaluator = None
 
 optim_wrapper = dict(
     type='OptimWrapper',
