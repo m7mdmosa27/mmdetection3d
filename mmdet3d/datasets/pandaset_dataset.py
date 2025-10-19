@@ -296,6 +296,16 @@ class PandaSetDataset(Det3DDataset):
         input_dict = ori_input_dict.copy()
         input_dict['box_type_3d'] = self.box_type_3d
         input_dict['box_mode_3d'] = self.box_mode_3d
+        # Ensure camera image paths are joined with prefixes if still relative
+        if self.modality.get('use_camera', False) and 'images' in input_dict:
+            for cam_id, img_info in input_dict['images'].items():
+                img_p = img_info.get('img_path', None)
+                if isinstance(img_p, str) and not os.path.isabs(img_p):
+                    if cam_id in self.data_prefix:
+                        cam_prefix = self.data_prefix[cam_id]
+                    else:
+                        cam_prefix = self.data_prefix.get('img', '')
+                    img_info['img_path'] = os.path.join(cam_prefix, img_p)
         if not self.test_mode:
             if 'ann_info' not in input_dict:
                 input_dict['ann_info'] = self.parse_ann_info(ori_input_dict)
