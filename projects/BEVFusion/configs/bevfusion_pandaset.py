@@ -147,7 +147,7 @@ train_dataloader = dict(
         modality=input_modality,
         default_cam_key='FRONT',
         box_type_3d='LiDAR',
-        filter_empty_gt=False)
+        filter_empty_gt=True)
 )
 
 val_dataloader = None
