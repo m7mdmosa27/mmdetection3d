@@ -8,8 +8,7 @@
 #   top-level keys across bases (MMEngine restriction).
 
 _base_ = [
-    '../../../configs/_base_/default_runtime.py',
-    # './bevfusion_lidar_voxel0075_second_secfpn_8xb4-cyclic-20e_nus-3d.py'
+    './bevfusion_lidar_voxel0075_second_secfpn_8xb4-cyclic-20e_nus-3d.py'
 ]
 
 # Ensure the custom dataset class and BEVFusion model are registered
@@ -24,7 +23,7 @@ custom_imports = dict(
 # ---------------------------------------------------------------------
 dataset_type = 'PandaSetDataset'
 data_root = 'data/pandaset/'
-class_names = ('Car', 'Pedestrian', 'Pickup Truck', 'Semi-truck', 'Cyclist')
+class_names = ('Car', 'Truck', 'Bus', 'Pedestrian', 'Cyclist', 'Motorcycle')
 
 # ---------------------------------------------------------------------
 # Model tweaks for PandaSet classes
