@@ -144,8 +144,44 @@ class PandaSetDataset(Det3DDataset):
 
                 # Extrinsics: derive lidar->cam from poses if available
                 extr = calib.get('extrinsics', {})
-                cam_pose = np.array(extr.get('camera_pose', np.eye(4)), dtype=np.float32)
-                lidar_pose = np.array(extr.get('lidar_pose', np.eye(4)), dtype=np.float32)
+                def to_mat4(m):
+                    if m is None:
+                        return np.eye(4, dtype=np.float32)
+                    # array-like provided
+                    if isinstance(m, (list, tuple, np.ndarray)):
+                        arr = np.array(m)
+                        if arr.size == 16:
+                            return arr.reshape(4, 4).astype(np.float32)
+                        if arr.shape == (4, 4):
+                            return arr.astype(np.float32)
+                    # dict forms
+                    if isinstance(m, dict):
+                        if 'matrix' in m:
+                            return to_mat4(m['matrix'])
+                        # common rotation/translation patterns
+                        for rot_key in ('R', 'rotation', 'rot', 'r'):
+                            if rot_key in m:
+                                R = np.array(m[rot_key], dtype=np.float32).reshape(3, 3)
+                                t_val = m.get('t') or m.get('translation') or m.get('trans') or m.get('t_vec') or [0.0, 0.0, 0.0]
+                                t = np.array(t_val, dtype=np.float32).reshape(3)
+                                T = np.eye(4, dtype=np.float32)
+                                T[:3, :3] = R
+                                T[:3, 3] = t
+                                return T
+                        if 'position' in m:
+                            pos = m['position']
+                            t = np.array([pos.get('x', 0.0), pos.get('y', 0.0), pos.get('z', 0.0)], dtype=np.float32)
+                            yaw = float(m.get('heading', m.get('yaw', 0.0)))
+                            c, s = np.cos(yaw), np.sin(yaw)
+                            R = np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]], dtype=np.float32)
+                            T = np.eye(4, dtype=np.float32)
+                            T[:3, :3] = R
+                            T[:3, 3] = t
+                            return T
+                    return np.eye(4, dtype=np.float32)
+
+                cam_pose = to_mat4(extr.get('camera_pose'))
+                lidar_pose = to_mat4(extr.get('lidar_pose'))
                 # Assume poses are world_from_sensor; then lidar2cam = inv(world_from_cam) @ world_from_lidar
                 def safe_inv(T):
                     try:
