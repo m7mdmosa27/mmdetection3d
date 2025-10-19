@@ -171,7 +171,14 @@ class PandaSetDataset(Det3DDataset):
                         if 'position' in m:
                             pos = m['position']
                             t = np.array([pos.get('x', 0.0), pos.get('y', 0.0), pos.get('z', 0.0)], dtype=np.float32)
-                            yaw = float(m.get('heading', m.get('yaw', 0.0)))
+                            yaw_val = m.get('heading', m.get('yaw', 0.0))
+                            if isinstance(yaw_val, (int, float)):
+                                yaw = float(yaw_val)
+                            elif isinstance(yaw_val, dict):
+                                yaw = float(yaw_val.get('rad', yaw_val.get('value', 0.0))) if any(
+                                    k in yaw_val for k in ('rad', 'value')) else 0.0
+                            else:
+                                yaw = 0.0
                             c, s = np.cos(yaw), np.sin(yaw)
                             R = np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]], dtype=np.float32)
                             T = np.eye(4, dtype=np.float32)
