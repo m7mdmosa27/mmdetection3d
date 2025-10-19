@@ -319,7 +319,7 @@ def test_dataloader(data_root):
             test_mode=False,
             modality=dict(use_lidar=True, use_camera=False),
             box_type_3d='LiDAR',
-            filter_empty_gt=True
+            filter_empty_gt=False  # Changed to False to include all samples
         )
         
         dataloader = DataLoader(

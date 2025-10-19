@@ -71,8 +71,11 @@ class PandaSetDataset(Det3DDataset):
         test_mode (bool): If True, does not load annotations.
     """
 
+    # NOTE: Update these classes based on analyze_pandaset_labels.py output
+    # These should be the exact label strings from PandaSet, no mapping needed
     METAINFO = {
-        'classes': ('Car', 'Truck', 'Bus', 'Pedestrian', 'Cyclist', 'Motorcycle')
+        'classes': ('Car', 'Pedestrian', 'Pickup Truck', 'Semi-truck', 'Cyclist')
+        # ☝️ Replace with your top 5 classes after running analyze_pandaset_labels.py
     }
 
     def __init__(self,
@@ -138,10 +141,22 @@ class PandaSetDataset(Det3DDataset):
     # Parse annotation file (.pkl with cuboids)
     # -------------------------------------------------------
     def parse_ann_info(self, info):
-        """Parse cuboid annotations into MMDetection3D format."""
+        """Parse cuboid annotations into MMDetection3D format.
+        
+        Only annotations with labels in METAINFO['classes'] are kept.
+        All other labels are ignored.
+        """
         anno_path = info.get('anno_path', None)
-        if anno_path is not None and not os.path.isabs(anno_path):
-            anno_path = os.path.join(self.data_root, anno_path)
+        
+        # Handle path conversion carefully
+        # If anno_path already starts with data_root, don't join again
+        if anno_path is not None:
+            if not os.path.isabs(anno_path):
+                # Check if path already contains data_root
+                if not anno_path.startswith(self.data_root):
+                    anno_path = os.path.join(self.data_root, anno_path)
+                # If path starts with data_root (common case from info files), use as-is
+        
         if (anno_path is None) or (not os.path.exists(anno_path)):
             empty_boxes = LiDARInstance3DBoxes(
                 np.zeros((0, 7), dtype=np.float32), box_dim=7, origin=(0.5, 0.5, 0.5)
@@ -158,6 +173,8 @@ class PandaSetDataset(Det3DDataset):
         for _, obj in annos.iterrows():
             # Each row is one cuboid
             label = obj.get('label', None)
+            
+            # Only keep labels that are in our class list (ignore all others)
             if label not in self.metainfo['classes']:
                 continue
 
