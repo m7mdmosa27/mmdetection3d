@@ -131,6 +131,9 @@ class PandaSetDataset(Det3DDataset):
             # Build single-view camera dict compatible with BEVFusion loaders
             images = None
             img_rel = info.get('img_path', None)
+            img_abs = None
+            if isinstance(img_rel, str):
+                img_abs = os.path.join(self.data_root, img_rel) if not os.path.isabs(img_rel) else img_rel
             if img_rel is not None and calib is not None and isinstance(calib, dict):
                 # Intrinsics K (3x3)
                 intr = calib.get('intrinsics', {})
@@ -199,7 +202,7 @@ class PandaSetDataset(Det3DDataset):
 
                 images = {
                     'FRONT': {
-                        'img_path': img_rel,   # keep relative; joined by data_prefix in parse_data_info
+                        'img_path': img_abs if img_abs is not None else img_rel,
                         'cam2img': cam2img,
                         'lidar2cam': lidar2cam
                     }
