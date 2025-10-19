@@ -1,6 +1,5 @@
 _base_ = [
-    # './bevfusion_lidar_voxel0075_second_secfpn_8xb4-cyclic-20e_nus-3d.py'
-    '../../../configs/_base_/default_runtime.py'
+    './bevfusion_lidar-cam_voxel0075_second_secfpn_8xb4-cyclic-20e_nus-3d.py'
 ]
 
 # Ensure the custom dataset class and BEVFusion components are registered
@@ -22,53 +21,7 @@ backend_args = None
 
 # Model: enable image branch + fusion, adjust num_classes
 model = dict(
-    type='BEVFusion',
-    data_preprocessor=dict(
-        type='Det3DDataPreprocessor',
-        mean=[123.675, 116.28, 103.53],
-        std=[58.395, 57.12, 57.375],
-        bgr_to_rgb=False),
-    img_backbone=dict(
-        type='mmdet.SwinTransformer',
-        embed_dims=96,
-        depths=[2, 2, 6, 2],
-        num_heads=[3, 6, 12, 24],
-        window_size=7,
-        mlp_ratio=4,
-        qkv_bias=True,
-        qk_scale=None,
-        drop_rate=0.0,
-        attn_drop_rate=0.0,
-        drop_path_rate=0.2,
-        patch_norm=True,
-        out_indices=[1, 2, 3],
-        with_cp=False,
-        convert_weights=True,
-        init_cfg=dict(
-            type='Pretrained',
-            checkpoint='https://github.com/SwinTransformer/storage/releases/download/v1.0.0/swin_tiny_patch4_window7_224.pth'
-        )),
-    img_neck=dict(
-        type='GeneralizedLSSFPN',
-        in_channels=[192, 384, 768],
-        out_channels=256,
-        start_level=0,
-        num_outs=3,
-        norm_cfg=dict(type='BN2d', requires_grad=True),
-        act_cfg=dict(type='ReLU', inplace=True),
-        upsample_cfg=dict(mode='bilinear', align_corners=False)),
-    view_transform=dict(
-        type='DepthLSSTransform',
-        in_channels=256,
-        out_channels=80,
-        image_size=[256, 704],
-        feature_size=[32, 88],
-        xbound=[-54.0, 54.0, 0.3],
-        ybound=[-54.0, 54.0, 0.3],
-        zbound=[-10.0, 10.0, 20.0],
-        dbound=[1.0, 60.0, 0.5],
-        downsample=2),
-    fusion_layer=dict(type='ConvFuser', in_channels=[80, 256], out_channels=256),
+    # inherit all components from base; only override class dims and point dims
     bbox_head=dict(num_classes=len(class_names)),
     pts_voxel_encoder=dict(num_features=4),
     pts_middle_encoder=dict(in_channels=4)
@@ -214,4 +167,5 @@ default_hooks = dict(
 )
 
 # Optional: initialize from nuScenes BEVFusion lidar+cam weights
-load_from = 'projects/BEVFusion/ckpts/bevfusion_lidar_cam_nuscenes.pth'
+# load_from can be set to a nuScenes pretrained model if available
+# load_from = 'projects/BEVFusion/ckpts/bevfusion_lidar_cam_nuscenes.pth'
