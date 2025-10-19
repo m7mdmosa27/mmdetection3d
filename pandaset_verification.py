@@ -362,12 +362,118 @@ def test_dataloader(data_root):
 
 
 # ==============================================================================
-# Main Runner
+# TEST 5: Visualization (Optional)
 # ==============================================================================
+def test_visualization(data_root):
+    """Test data visualization with Open3D."""
+    print_section("TEST 5: Visualization (Optional)")
+    
+    try:
+        import open3d as o3d
+        has_o3d = True
+    except ImportError:
+        has_o3d = False
+        print_warning("Open3D not installed, skipping visualization")
+        print_info("Install with: pip install open3d")
+        return True, []
+    
+    from mmdet3d.datasets import PandaSetDataset
+    
+    test_pipeline = [
+        dict(type='LoadPandaSetPointsFromPKL', coord_type='LIDAR', load_dim=4, use_dim=4),
+        dict(type='LoadAnnotations3D', with_bbox_3d=True, with_label_3d=True),
+        dict(type='Pack3DDetInputs', keys=['points', 'gt_bboxes_3d', 'gt_labels_3d'])
+    ]
+    
+    dataset = PandaSetDataset(
+        data_root=data_root,
+        ann_file='pandaset_infos_train.pkl',
+        pipeline=test_pipeline,
+        data_prefix=dict(pts='', img='', sweeps=''),
+        test_mode=False,
+        modality=dict(use_lidar=True, use_camera=False),
+        box_type_3d='LiDAR',
+        filter_empty_gt=False
+    )
+    
+    sample = dataset[0]
+    points = sample['inputs']['points'].numpy()
+    boxes = sample['data_samples'].gt_instances_3d.bboxes_3d.tensor.numpy()
+    labels = sample['data_samples'].gt_instances_3d.labels_3d.numpy()
+    
+    print_success(f"Sample loaded for visualization")
+    print_info(f"  Points: {points.shape}")
+    print_info(f"  Boxes: {boxes.shape}")
+    print_info(f"  Labels: {labels.shape}")
+    
+    # Create point cloud
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(points[:, :3])
+    
+    # Color points by height for better visualization
+    colors = np.zeros((points.shape[0], 3))
+    z_norm = (points[:, 2] - points[:, 2].min()) / (points[:, 2].max() - points[:, 2].min() + 1e-6)
+    colors[:, 0] = z_norm  # Red channel
+    colors[:, 2] = 1 - z_norm  # Blue channel
+    pcd.colors = o3d.utility.Vector3dVector(colors)
+    
+    # Create bounding boxes
+    bbox_geometries = []
+    class_colors = {
+        0: [1, 0, 0],     # Car - Red
+        1: [0, 1, 0],     # Pedestrian - Green
+        2: [0, 0, 1],     # Pickup Truck - Blue
+        3: [1, 1, 0],     # Semi-truck - Yellow
+        4: [1, 0, 1],     # Cyclist - Magenta
+    }
+    
+    for i, (box, label) in enumerate(zip(boxes, labels)):
+        # box format: [x, y, z, dx, dy, dz, yaw]
+        center = box[:3]
+        extent = box[3:6]
+        yaw = box[6]
+        
+        # Create rotation matrix for yaw
+        rotation = np.array([
+            [np.cos(yaw), -np.sin(yaw), 0],
+            [np.sin(yaw), np.cos(yaw), 0],
+            [0, 0, 1]
+        ])
+        
+        # Create oriented bounding box
+        bbox = o3d.geometry.OrientedBoundingBox(center, rotation, extent)
+        bbox.color = class_colors.get(label, [0.5, 0.5, 0.5])
+        bbox_geometries.append(bbox)
+    
+    print_info(f"\nCreated visualization with {len(bbox_geometries)} bounding boxes")
+    print_info("\nClass legend:")
+    class_names = dataset.metainfo['classes']
+    for i, (color, name) in enumerate(zip(class_colors.values(), class_names)):
+        if i < len(class_names):
+            print_info(f"  {name}: RGB{color}")
+    
+    print_info("\nVisualization controls:")
+    print_info("  - Mouse: Rotate view")
+    print_info("  - Scroll: Zoom")
+    print_info("  - Close window to continue")
+    
+    # Visualize
+    o3d.visualization.draw_geometries(
+        [pcd] + bbox_geometries,
+        window_name=f"PandaSet Sample 0 - {len(bbox_geometries)} objects",
+        width=1280,
+        height=720
+    )
+    
+    print_success("Visualization completed")
+    
+    return True, []
 def main():
     parser = argparse.ArgumentParser(description='Verify PandaSet integration')
     parser.add_argument('--data-root', type=str, default='data/pandaset',
                         help='Root directory of PandaSet')
+    parser.add_argument('--skip-viz', action='store_true',
+                        help='Skip visualization test')
     args = parser.parse_args()
     
     print(f"\n{Colors.BOLD}PandaSet MMDetection3D Integration Verification{Colors.END}")
@@ -390,6 +496,10 @@ def main():
         ("Full Pipeline", lambda: test_full_pipeline(args.data_root)),
         ("DataLoader", lambda: test_dataloader(args.data_root)),
     ])
+    
+    # Add visualization test if not skipped
+    if not args.skip_viz:
+        tests.append(("Visualization", lambda: test_visualization(args.data_root)))
     
     for test_name, test_func in tests:
         try:
@@ -416,6 +526,10 @@ def main():
     print(f"\n{Colors.BOLD}{'='*70}{Colors.END}")
     if all_passed:
         print(f"{Colors.GREEN}{Colors.BOLD}✓ All tests passed! Ready to start training.{Colors.END}")
+        print(f"\n{Colors.BOLD}Next steps:{Colors.END}")
+        print(f"  1. Review your config: projects/BEVFusion/configs/bevfusion_pandaset.py")
+        print(f"  2. Start training:")
+        print(f"     python tools/train.py projects/BEVFusion/configs/bevfusion_pandaset.py")
     else:
         print(f"{Colors.RED}{Colors.BOLD}✗ Some tests failed. Fix issues before training.{Colors.END}")
     print(f"{Colors.BOLD}{'='*70}{Colors.END}\n")
