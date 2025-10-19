@@ -29,7 +29,7 @@ model = dict(
             center=[2, 2], height=[1, 2], dim=[3, 2], rot=[2, 2]
         ),
         bbox_coder=dict(code_size=8),
-        train_cfg=dict(dataset='PandaSet'),
+        train_cfg=dict(dataset='PandaSet', code_weights=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]),
         test_cfg=dict(dataset='PandaSet')
     ),
     pts_voxel_encoder=dict(num_features=4),
