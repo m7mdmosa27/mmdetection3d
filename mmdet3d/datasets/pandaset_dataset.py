@@ -128,12 +128,49 @@ class PandaSetDataset(Det3DDataset):
             anno_path = os.path.join(self.data_root, anno_rel) if (anno_rel is not None and not os.path.isabs(anno_rel)) else anno_rel
             calib = info.get('calib', None)
 
-            data_list.append(dict(
+            # Build single-view camera dict compatible with BEVFusion loaders
+            images = None
+            img_rel = info.get('img_path', None)
+            if img_rel is not None and calib is not None and isinstance(calib, dict):
+                # Intrinsics K (3x3)
+                intr = calib.get('intrinsics', {})
+                fx = float(intr.get('fx', 0.0))
+                fy = float(intr.get('fy', 0.0))
+                cx = float(intr.get('cx', 0.0))
+                cy = float(intr.get('cy', 0.0))
+                cam2img = np.array([[fx, 0.0, cx],
+                                    [0.0, fy, cy],
+                                    [0.0, 0.0, 1.0]], dtype=np.float32)
+
+                # Extrinsics: derive lidar->cam from poses if available
+                extr = calib.get('extrinsics', {})
+                cam_pose = np.array(extr.get('camera_pose', np.eye(4)), dtype=np.float32)
+                lidar_pose = np.array(extr.get('lidar_pose', np.eye(4)), dtype=np.float32)
+                # Assume poses are world_from_sensor; then lidar2cam = inv(world_from_cam) @ world_from_lidar
+                def safe_inv(T):
+                    try:
+                        return np.linalg.inv(T)
+                    except Exception:
+                        return np.eye(4, dtype=np.float32)
+                lidar2cam = safe_inv(cam_pose) @ lidar_pose
+
+                images = {
+                    'FRONT': {
+                        'img_path': img_rel,   # keep relative; joined by data_prefix in parse_data_info
+                        'cam2img': cam2img,
+                        'lidar2cam': lidar2cam
+                    }
+                }
+
+            item = dict(
                 sample_idx=info.get('sample_idx', None),
                 lidar_points=dict(lidar_path=lidar_abs, num_pts_feats=4),
                 anno_path=anno_path,
                 calib=calib
-            ))
+            )
+            if images is not None:
+                item['images'] = images
+            data_list.append(item)
 
         return data_list
 

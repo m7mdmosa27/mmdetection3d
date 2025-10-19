@@ -1,66 +1,174 @@
-# projects/BEVFusion/configs/bevfusion_pandaset.py
-#
-# BEVFusion model configuration adapted for PandaSet
-#
-# Note on inheritance:
-# - We inherit BEVFusion's nuScenes model config to reuse the model and
-#   pipelines. We DO NOT inherit a dataset base here to avoid duplicate
-#   top-level keys across bases (MMEngine restriction).
-
 _base_ = [
     './bevfusion_lidar_voxel0075_second_secfpn_8xb4-cyclic-20e_nus-3d.py'
 ]
 
-# Ensure the custom dataset class and BEVFusion model are registered
+# Ensure the custom dataset class and BEVFusion components are registered
 custom_imports = dict(
     imports=[
         'mmdet3d.datasets.pandaset_dataset',
         'projects.BEVFusion.bevfusion'
     ], allow_failed_imports=True)
 
-# ---------------------------------------------------------------------
-# Dataset settings (override nuScenes settings from the model base)
-# ---------------------------------------------------------------------
+# Dataset
 dataset_type = 'PandaSetDataset'
 data_root = 'data/pandaset/'
-class_names = ('Car', 'Truck', 'Bus', 'Pedestrian', 'Cyclist', 'Motorcycle')
+class_names = ('Car', 'Pedestrian', 'Pickup Truck', 'Semi-truck', 'Cyclist')
 
-# ---------------------------------------------------------------------
-# Model tweaks for PandaSet classes
-# ---------------------------------------------------------------------
+# Modalities and ranges
+point_cloud_range = [-54.0, -54.0, -5.0, 54.0, 54.0, 3.0]
+input_modality = dict(use_lidar=True, use_camera=True)
+backend_args = None
+
+# Model: enable image branch + fusion, adjust num_classes
 model = dict(
-    # Use LiDAR-only BEVFusion base to simplify bring-up on PandaSet
     type='BEVFusion',
+    data_preprocessor=dict(
+        type='Det3DDataPreprocessor',
+        mean=[123.675, 116.28, 103.53],
+        std=[58.395, 57.12, 57.375],
+        bgr_to_rgb=False),
+    img_backbone=dict(
+        type='mmdet.SwinTransformer',
+        embed_dims=96,
+        depths=[2, 2, 6, 2],
+        num_heads=[3, 6, 12, 24],
+        window_size=7,
+        mlp_ratio=4,
+        qkv_bias=True,
+        qk_scale=None,
+        drop_rate=0.0,
+        attn_drop_rate=0.0,
+        drop_path_rate=0.2,
+        patch_norm=True,
+        out_indices=[1, 2, 3],
+        with_cp=False,
+        convert_weights=True,
+        init_cfg=dict(
+            type='Pretrained',
+            checkpoint='https://github.com/SwinTransformer/storage/releases/download/v1.0.0/swin_tiny_patch4_window7_224.pth'
+        )),
+    img_neck=dict(
+        type='GeneralizedLSSFPN',
+        in_channels=[192, 384, 768],
+        out_channels=256,
+        start_level=0,
+        num_outs=3,
+        norm_cfg=dict(type='BN2d', requires_grad=True),
+        act_cfg=dict(type='ReLU', inplace=True),
+        upsample_cfg=dict(mode='bilinear', align_corners=False)),
+    view_transform=dict(
+        type='DepthLSSTransform',
+        in_channels=256,
+        out_channels=80,
+        image_size=[256, 704],
+        feature_size=[32, 88],
+        xbound=[-54.0, 54.0, 0.3],
+        ybound=[-54.0, 54.0, 0.3],
+        zbound=[-10.0, 10.0, 20.0],
+        dbound=[1.0, 60.0, 0.5],
+        downsample=2),
+    fusion_layer=dict(type='ConvFuser', in_channels=[80, 256], out_channels=256),
     bbox_head=dict(num_classes=len(class_names)),
     pts_voxel_encoder=dict(num_features=4),
     pts_middle_encoder=dict(in_channels=4)
 )
 
-# If you need PandaSet-specific pipelines, define them here and then
-# reference them in dataloaders. Otherwise, the inherited BEVFusion pipelines
-# are used; you should ensure they are compatible with your PandaSet data.
-
-point_cloud_range = [-54.0, -54.0, -5.0, 54.0, 54.0, 3.0]
-
-# Minimal PandaSet pipelines (LiDAR-only to start)
+# Pipelines (single-view camera for PandaSet)
 train_pipeline = [
-    dict(type='LoadPandaSetPointsFromPKL', coord_type='LIDAR', load_dim=4, use_dim=4),
-    dict(type='LoadAnnotations3D', with_bbox_3d=True, with_label_3d=True),
-    dict(type='GlobalRotScaleTrans', rot_range=[-0.785, 0.785],
-         scale_ratio_range=[0.95, 1.05], translation_std=[0.5, 0.5, 0.5]),
-    dict(type='RandomFlip3D', flip_ratio_bev_horizontal=0.5),
+    dict(
+        type='BEVLoadMultiViewImageFromFiles',
+        to_float32=True,
+        color_type='color',
+        backend_args=backend_args,
+        num_views=1
+    ),
+    dict(
+        type='LoadPandaSetPointsFromPKL',
+        coord_type='LIDAR',
+        load_dim=4,
+        use_dim=4
+    ),
+    dict(
+        type='LoadAnnotations3D',
+        with_bbox_3d=True,
+        with_label_3d=True,
+        with_attr_label=False
+    ),
+    dict(
+        type='ImageAug3D',
+        final_dim=[256, 704],
+        resize_lim=[0.5, 0.6],
+        bot_pct_lim=[0.0, 0.0],
+        rot_lim=[-5.4, 5.4],
+        rand_flip=True,
+        is_train=True
+    ),
+    dict(
+        type='BEVFusionGlobalRotScaleTrans',
+        scale_ratio_range=[0.95, 1.05],
+        rot_range=[-0.78539816, 0.78539816],
+        translation_std=0.5
+    ),
+    dict(type='BEVFusionRandomFlip3D'),
     dict(type='PointsRangeFilter', point_cloud_range=point_cloud_range),
     dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
-    dict(type='Pack3DDetInputs', keys=['points', 'gt_bboxes_3d', 'gt_labels_3d'])
+    dict(
+        type='GridMask',
+        use_h=True,
+        use_w=True,
+        max_epoch=6,
+        rotate=1,
+        offset=False,
+        ratio=0.5,
+        mode=1,
+        prob=0.0,
+        fixed_prob=True
+    ),
+    dict(type='PointShuffle'),
+    dict(
+        type='Pack3DDetInputs',
+        keys=['points', 'img', 'gt_bboxes_3d', 'gt_labels_3d', 'gt_bboxes', 'gt_labels'],
+        meta_keys=[
+            'cam2img', 'ori_cam2img', 'lidar2cam', 'lidar2img', 'cam2lidar',
+            'ori_lidar2img', 'img_aug_matrix', 'box_type_3d', 'sample_idx',
+            'lidar_path', 'img_path', 'transformation_3d_flow', 'pcd_rotation',
+            'pcd_scale_factor', 'pcd_trans', 'img_aug_matrix', 'lidar_aug_matrix', 'num_pts_feats'
+        ]
+    )
 ]
 
 test_pipeline = [
-    dict(type='LoadPandaSetPointsFromPKL', coord_type='LIDAR', load_dim=4, use_dim=4),
+    dict(
+        type='BEVLoadMultiViewImageFromFiles',
+        to_float32=True,
+        color_type='color',
+        backend_args=backend_args,
+        num_views=1
+    ),
+    dict(
+        type='LoadPandaSetPointsFromPKL',
+        coord_type='LIDAR',
+        load_dim=4,
+        use_dim=4
+    ),
+    dict(
+        type='ImageAug3D',
+        final_dim=[256, 704],
+        resize_lim=[0.5, 0.5],
+        bot_pct_lim=[0.0, 0.0],
+        rot_lim=[0.0, 0.0],
+        rand_flip=False,
+        is_train=False
+    ),
     dict(type='PointsRangeFilter', point_cloud_range=point_cloud_range),
-    dict(type='Pack3DDetInputs', keys=['points'])
+    dict(
+        type='Pack3DDetInputs',
+        keys=['img', 'points', 'gt_bboxes_3d', 'gt_labels_3d'],
+        meta_keys=['cam2img', 'ori_cam2img', 'lidar2cam', 'lidar2img', 'cam2lidar', 'ori_lidar2img', 'box_type_3d', 'sample_idx', 'lidar_path', 'img_path', 'num_pts_feats']
+    )
 ]
 
-# Dataloaders for PandaSet infos
+# Dataloaders
 train_dataloader = dict(
     batch_size=2,
     num_workers=4,
@@ -69,13 +177,15 @@ train_dataloader = dict(
         _delete_=True,
         type=dataset_type,
         data_root=data_root,
-        data_prefix=dict(pts=data_root),
+        data_prefix=dict(pts=data_root, img=data_root),
         ann_file='pandaset_infos_train.pkl',
         pipeline=train_pipeline,
         metainfo=dict(classes=class_names),
-        modality=dict(use_lidar=True, use_camera=False),
+        modality=input_modality,
+        default_cam_key='FRONT',
         box_type_3d='LiDAR',
-        filter_empty_gt=False))
+        filter_empty_gt=False)
+)
 
 val_dataloader = dict(
     batch_size=1,
@@ -85,41 +195,38 @@ val_dataloader = dict(
         _delete_=True,
         type=dataset_type,
         data_root=data_root,
-        data_prefix=dict(pts=data_root),
+        data_prefix=dict(pts=data_root, img=data_root),
         ann_file='pandaset_infos_val.pkl',
         pipeline=test_pipeline,
         metainfo=dict(classes=class_names),
-        modality=dict(use_lidar=True, use_camera=False),
+        modality=input_modality,
+        default_cam_key='FRONT',
         box_type_3d='LiDAR',
-        filter_empty_gt=False))
+        filter_empty_gt=False)
+)
 
 test_dataloader = val_dataloader
 
-# You may also need to set evaluators compatible with PandaSet, or disable
-# validation until a metric is available.
-
-# ---------------------------------------------------------------------
-# Training schedule/runtime
-# ---------------------------------------------------------------------
-train_cfg = dict(max_epochs=24, val_interval=0)
+# Schedule/runtime
+train_cfg = dict(by_epoch=True, max_epochs=12, val_interval=1)
+val_cfg = dict()
+test_cfg = dict()
 
 optim_wrapper = dict(
-    optimizer=dict(type='AdamW', lr=1e-4, weight_decay=0.01),
+    type='OptimWrapper',
+    optimizer=dict(type='AdamW', lr=2e-4, weight_decay=0.01),
     clip_grad=dict(max_norm=35, norm_type=2)
 )
 
 param_scheduler = [
-    dict(type='CosineAnnealingLR', T_max=24, eta_min=1e-6, by_epoch=True)
+    dict(type='LinearLR', start_factor=0.33333333, by_epoch=False, begin=0, end=500),
+    dict(type='CosineAnnealingLR', begin=0, T_max=12, end=12, by_epoch=True, eta_min_ratio=1e-4, convert_to_iter_based=True)
 ]
 
 default_hooks = dict(
-    checkpoint=dict(interval=2, max_keep_ckpts=3),
-    logger=dict(interval=50)
+    logger=dict(type='LoggerHook', interval=50),
+    checkpoint=dict(type='CheckpointHook', interval=1)
 )
 
-custom_hooks = [
-    dict(type='EMAHook', ema_type='ExpMomentumEMA', momentum=0.0002, update_buffers=True)
-]
-
-# Optional: initialize from nuScenes BEVFusion weights
+# Optional: initialize from nuScenes BEVFusion lidar+cam weights
 load_from = 'projects/BEVFusion/ckpts/bevfusion_lidar_cam_nuscenes.pth'
