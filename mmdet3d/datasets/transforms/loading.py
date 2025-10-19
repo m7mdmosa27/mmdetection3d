@@ -10,6 +10,7 @@ from mmcv.transforms.base import BaseTransform
 from mmdet.datasets.transforms import LoadAnnotations
 from mmengine.fileio import get
 
+from mmengine.registry import TRANSFORMS as MMENGINE_TRANSFORMS
 from mmdet3d.registry import TRANSFORMS
 from mmdet3d.structures.bbox_3d import get_box_type
 from mmdet3d.structures.points import BasePoints, get_points_type
@@ -744,6 +745,77 @@ class LoadPointsFromDict(LoadPointsFromFile):
         results['points'] = points
         return results
 
+@MMENGINE_TRANSFORMS.register_module()
+@TRANSFORMS.register_module()
+class LoadPandaSetPointsFromPKL(BaseTransform):
+    """Load PandaSet LiDAR points from a .pkl file.
+
+    The .pkl can be one of:
+      - a numpy.ndarray of shape (N, C)
+      - a pandas.DataFrame with columns including x,y,z and optional intensity
+      - a list of dicts with keys 'x','y','z' and optional 'intensity'
+
+    Args:
+        coord_type (str): Coordinate type, e.g., 'LIDAR'.
+        load_dim (int): Expected loaded dimension. Defaults to 4.
+        use_dim (list[int] | int): Which dims to keep. Defaults to [0,1,2,3].
+        backend_args (dict, optional): Unused; kept for signature parity.
+    """
+
+    def __init__(self,
+                 coord_type: str = 'LIDAR',
+                 load_dim: int = 4,
+                 use_dim: Union[int, List[int]] = [0, 1, 2, 3],
+                 backend_args: Optional[dict] = None) -> None:
+        if isinstance(use_dim, int):
+            use_dim = list(range(use_dim))
+        self.coord_type = coord_type
+        self.load_dim = load_dim
+        self.use_dim = use_dim
+        self.backend_args = backend_args
+
+    def _as_numpy(self, obj) -> np.ndarray:
+        try:
+            import pandas as pd  # optional
+        except Exception:
+            pd = None
+
+        if isinstance(obj, np.ndarray):
+            arr = obj
+        elif pd is not None and isinstance(obj, pd.DataFrame):
+            cols = [c for c in ['x', 'y', 'z', 'intensity'] if c in obj.columns]
+            arr = obj[cols].to_numpy()
+        elif isinstance(obj, list) and len(obj) > 0 and isinstance(obj[0], dict):
+            xs = [d.get('x', 0.0) for d in obj]
+            ys = [d.get('y', 0.0) for d in obj]
+            zs = [d.get('z', 0.0) for d in obj]
+            ins = [d.get('intensity', 0.0) for d in obj]
+            arr = np.stack([xs, ys, zs, ins], axis=1)
+        else:
+            # Fallback: try to convert to ndarray
+            arr = np.array(obj)
+
+        if arr.ndim == 1:
+            arr = arr.reshape(-1, 4) if arr.size % 4 == 0 else arr.reshape(-1, min(4, arr.size))
+
+        # Ensure at least 4 dims by padding zeros
+        if arr.shape[1] < 4:
+            pad = np.zeros((arr.shape[0], 4 - arr.shape[1]), dtype=arr.dtype)
+            arr = np.concatenate([arr, pad], axis=1)
+        return arr.astype(np.float32, copy=False)
+
+    def transform(self, results: dict) -> dict:
+        pts_file_path = results['lidar_points']['lidar_path']
+        # Local read; do not use file backend for pickle
+        import pickle, os
+        with open(pts_file_path, 'rb') as f:
+            obj = pickle.load(f)
+        points = self._as_numpy(obj)
+        points = points[:, self.use_dim]
+        points_class = get_points_type(self.coord_type)
+        points = points_class(points, points_dim=points.shape[-1])
+        results['points'] = points
+        return results
 
 @TRANSFORMS.register_module()
 class LoadAnnotations3D(LoadAnnotations):

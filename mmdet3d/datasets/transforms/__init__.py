@@ -3,7 +3,7 @@ from .dbsampler import DataBaseSampler
 from .formating import Pack3DDetInputs
 from .loading import (LidarDet3DInferencerLoader, LoadAnnotations3D,
                       LoadImageFromFileMono3D, LoadMultiViewImageFromFiles,
-                      LoadPointsFromDict, LoadPointsFromFile,
+                      LoadPointsFromDict, LoadPointsFromFile, LoadPandaSetPointsFromPKL,
                       LoadPointsFromMultiSweeps, MonoDet3DInferencerLoader,
                       MultiModalityDet3DInferencerLoader, NormalizePointsColor,
                       PointSegClassMapping)
@@ -32,5 +32,5 @@ __all__ = [
     'RandomShiftScale', 'LoadPointsFromDict', 'Resize3D', 'RandomResize3D',
     'MultiViewWrapper', 'PhotoMetricDistortion3D', 'MonoDet3DInferencerLoader',
     'LidarDet3DInferencerLoader', 'PolarMix', 'LaserMix',
-    'MultiModalityDet3DInferencerLoader'
+    'MultiModalityDet3DInferencerLoader', 'LoadPandaSetPointsFromPKL',
 ]
