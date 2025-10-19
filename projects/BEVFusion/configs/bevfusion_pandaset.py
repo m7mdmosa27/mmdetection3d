@@ -22,7 +22,11 @@ backend_args = None
 # Model: enable image branch + fusion, adjust num_classes
 model = dict(
     # inherit all components from base; only override class dims and point dims
-    bbox_head=dict(num_classes=len(class_names)),
+    bbox_head=dict(
+        num_classes=len(class_names),
+        train_cfg=dict(dataset='PandaSet'),
+        test_cfg=dict(dataset='PandaSet')
+    ),
     pts_voxel_encoder=dict(num_features=4),
     pts_middle_encoder=dict(in_channels=4)
 )
