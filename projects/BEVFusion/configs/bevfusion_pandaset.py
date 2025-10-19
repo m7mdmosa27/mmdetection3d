@@ -1,5 +1,6 @@
 _base_ = [
-    './bevfusion_lidar_voxel0075_second_secfpn_8xb4-cyclic-20e_nus-3d.py'
+    # './bevfusion_lidar_voxel0075_second_secfpn_8xb4-cyclic-20e_nus-3d.py'
+    '../../../configs/_base_/default_runtime.py'
 ]
 
 # Ensure the custom dataset class and BEVFusion components are registered
@@ -187,30 +188,14 @@ train_dataloader = dict(
         filter_empty_gt=False)
 )
 
-val_dataloader = dict(
-    batch_size=1,
-    num_workers=2,
-    sampler=dict(type='DefaultSampler', shuffle=False),
-    dataset=dict(
-        _delete_=True,
-        type=dataset_type,
-        data_root=data_root,
-        data_prefix=dict(pts=data_root, img=data_root),
-        ann_file='pandaset_infos_val.pkl',
-        pipeline=test_pipeline,
-        metainfo=dict(classes=class_names),
-        modality=input_modality,
-        default_cam_key='FRONT',
-        box_type_3d='LiDAR',
-        filter_empty_gt=False)
-)
+val_dataloader = None
 
-test_dataloader = val_dataloader
+test_dataloader = None
 
 # Schedule/runtime
-train_cfg = dict(by_epoch=True, max_epochs=12, val_interval=1)
-val_cfg = dict()
-test_cfg = dict()
+train_cfg = dict(by_epoch=True, max_epochs=12, val_interval=0)
+val_cfg = None
+test_cfg = None
 
 optim_wrapper = dict(
     type='OptimWrapper',
