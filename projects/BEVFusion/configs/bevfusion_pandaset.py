@@ -24,6 +24,11 @@ model = dict(
     # inherit all components from base; only override class dims and point dims
     bbox_head=dict(
         num_classes=len(class_names),
+        # remove velocity prediction and use 8-d code (no vel)
+        common_heads=dict(
+            center=[2, 2], height=[1, 2], dim=[3, 2], rot=[2, 2]
+        ),
+        bbox_coder=dict(code_size=8),
         train_cfg=dict(dataset='PandaSet'),
         test_cfg=dict(dataset='PandaSet')
     ),
