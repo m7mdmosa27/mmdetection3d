@@ -271,14 +271,18 @@ class PandaSetDataset(Det3DDataset):
 
         if len(gt_bboxes_3d) == 0:
             boxes_3d = LiDARInstance3DBoxes(
-                np.zeros((0, 7), dtype=np.float32), box_dim=7, origin=(0.5, 0.5, 0.5)
+                np.zeros((0, 10), dtype=np.float32), box_dim=10, origin=(0.5, 0.5, 0.5)
             )
             gt_labels_3d = np.zeros((0,), dtype=np.int64)
         else:
             gt_bboxes_3d = np.array(gt_bboxes_3d, dtype=np.float32)
             gt_labels_3d = np.array(gt_labels_3d, dtype=np.int64)
+            # Pad to 10 dims to match head's code size (adds zeros for extra dims like velocity)
+            if gt_bboxes_3d.shape[1] < 10:
+                pad = np.zeros((gt_bboxes_3d.shape[0], 10 - gt_bboxes_3d.shape[1]), dtype=np.float32)
+                gt_bboxes_3d = np.concatenate([gt_bboxes_3d, pad], axis=1)
             # Wrap numpy boxes into LiDARInstance3DBoxes
-            boxes_3d = LiDARInstance3DBoxes(gt_bboxes_3d, box_dim=7, origin=(0.5, 0.5, 0.5))
+            boxes_3d = LiDARInstance3DBoxes(gt_bboxes_3d, box_dim=10, origin=(0.5, 0.5, 0.5))
         ann_info = dict(
             gt_bboxes_3d=boxes_3d,
             gt_labels_3d=gt_labels_3d
