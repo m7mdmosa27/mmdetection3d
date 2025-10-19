@@ -302,14 +302,19 @@ class PandaSetDataset(Det3DDataset):
                 img_p = img_info.get('img_path', None)
                 prefix_img = self.data_prefix.get('img', '') if isinstance(self.data_prefix, dict) else ''
                 if (isinstance(img_p, str)
-                        and not os.path.isabs(img_p)
-                        and not (prefix_img and img_p.startswith(prefix_img))
-                        and not (isinstance(self.data_root, str) and img_p.startswith(self.data_root))):
-                    if cam_id in self.data_prefix:
-                        cam_prefix = self.data_prefix[cam_id]
-                    else:
-                        cam_prefix = self.data_prefix.get('img', '')
-                    img_info['img_path'] = os.path.join(cam_prefix, img_p)
+                        and not os.path.isabs(img_p)):
+                    # Normalize separators for robust prefix checks
+                    img_p_norm = img_p.replace('\\', '/')
+                    prefix_img_norm = prefix_img.replace('\\', '/') if isinstance(prefix_img, str) else ''
+                    data_root_norm = (self.data_root.replace('\\', '/')
+                                      if isinstance(self.data_root, str) else '')
+                    if not ((prefix_img_norm and img_p_norm.startswith(prefix_img_norm))
+                            or (data_root_norm and img_p_norm.startswith(data_root_norm))):
+                        if cam_id in self.data_prefix:
+                            cam_prefix = self.data_prefix[cam_id]
+                        else:
+                            cam_prefix = self.data_prefix.get('img', '')
+                        img_info['img_path'] = os.path.join(cam_prefix, img_p)
         if not self.test_mode:
             if 'ann_info' not in input_dict:
                 input_dict['ann_info'] = self.parse_ann_info(ori_input_dict)
