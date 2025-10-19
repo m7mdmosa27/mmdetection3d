@@ -281,7 +281,8 @@ class HungarianAssigner3D(BaseAssigner):
             labels=gt_labels), InstanceData(scores=cls_pred[0].T)
         cls_cost = self.cls_cost(pred_instances, gt_instances)
         reg_cost = self.reg_cost(bboxes, gt_bboxes, train_cfg)
-        iou = self.iou_calculator(bboxes, gt_bboxes)
+        # Ensure IoU is computed on the first 7 dims (x,y,z,dx,dy,dz,yaw)
+        iou = self.iou_calculator(bboxes[..., :7], gt_bboxes[..., :7])
         iou_cost = self.iou_cost(iou)
 
         # weighted sum of above three costs
