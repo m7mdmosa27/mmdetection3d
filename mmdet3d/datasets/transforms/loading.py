@@ -783,8 +783,19 @@ class LoadPandaSetPointsFromPKL(BaseTransform):
         if isinstance(obj, np.ndarray):
             arr = obj
         elif pd is not None and isinstance(obj, pd.DataFrame):
+            # obj = obj[obj["d"] == 1] 
+            lidar_type = 1
+            if lidar_type == 1: # Front Forward LiDAR
+                obj= obj[obj['d'] == 1]
+            elif lidar_type == 0: # 365 degree LiDAR
+                obj= obj[obj['d'] == 0]
+            elif lidar_type == -1: # Both LiDARs
+                obj= obj
+            else:
+                raise ValueError(f"Invalid lidar type: {lidar_type}")
             cols = [c for c in ['x', 'y', 'z', 'intensity'] if c in obj.columns]
-            arr = obj[cols].to_numpy()
+            obj = obj[cols] 
+            arr = obj.to_numpy()
         elif isinstance(obj, list) and len(obj) > 0 and isinstance(obj[0], dict):
             xs = [d.get('x', 0.0) for d in obj]
             ys = [d.get('y', 0.0) for d in obj]

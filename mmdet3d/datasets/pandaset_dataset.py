@@ -12,6 +12,7 @@ from mmdet3d.datasets.det3d_dataset import Det3DDataset
 from mmdet3d.registry import DATASETS, TRANSFORMS
 from mmdet3d.structures.bbox_3d import LiDARInstance3DBoxes
 from mmengine.dataset import Compose
+from pandas import concat
 
 
 class MMDet3DCompose(Compose):
@@ -74,7 +75,7 @@ class PandaSetDataset(Det3DDataset):
     # NOTE: Update these classes based on analyze_pandaset_labels.py output
     # These should be the exact label strings from PandaSet, no mapping needed
     METAINFO = {
-        'classes': ('Car', 'Pedestrian', 'Pickup Truck', 'Semi-truck', 'Cyclist')
+        'classes': ('Car', 'Pedestrian', 'Pedestrian with Object', 'Temporary Construction Barriers', 'Cones')
         # ☝️ Replace with your top 5 classes after running analyze_pandaset_labels.py
     }
 
@@ -251,6 +252,21 @@ class PandaSetDataset(Det3DDataset):
 
         # Load DataFrame with cuboids
         annos = pickle.load(open(anno_path, 'rb'))
+        # Filter annotations based on lidar type
+        lidar_type = 1
+        if lidar_type == 1: # Front Forward LiDAR
+            anno1 = annos[annos['cuboids.sensor_id']==1]
+            anno2= annos[annos['camera_used']==0]
+
+            annos = concat([anno1, anno2], ignore_index=True).drop_duplicates().reset_index(drop=True)
+        elif lidar_type == 0: # 365 degree LiDAR
+            annos = annos[annos['cuboids.sensor_id']==0]
+        elif lidar_type == -1: # Not seen in LiDAR sensor
+            annos = annos[annos['cuboids.sensor_id']==-1]
+        elif lidar_type is None: # All cuboids (not filtered)
+            annos = annos
+        else:
+            raise ValueError(f"Invalid lidar type: {lidar_type}")
 
         gt_bboxes_3d, gt_labels_3d = [], []
         for _, obj in annos.iterrows():
