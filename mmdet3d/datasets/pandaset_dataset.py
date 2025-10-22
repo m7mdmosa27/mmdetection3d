@@ -1,8 +1,8 @@
 # mmdet3d/datasets/pandaset_dataset.py
 #
 # PandaSet custom dataset for MMDetection3D
-# Uses forward-facing LiDAR + front_camera for 3D detection (cuboids only)
-# Reads native .pkl and .json files (no KITTI conversion required)
+# FIXED VERSION with correct coordinate transformations
+# Based on PandaSet SDK geometry.py approach
 
 import os
 import pickle
@@ -39,28 +39,13 @@ class MMDet3DCompose(Compose):
 class PandaSetDataset(Det3DDataset):
     """Custom dataset for PandaSet (front_camera + forward LiDAR, 3D cuboids).
 
-    The dataset expects a folder structure like:
-
-    data/pandaset/
-        ├── 001/
-        │   ├── lidar/
-        │   │   ├── 00.pkl
-        │   │   ├── poses.json
-        │   │   └── timestamps.json
-        │   ├── camera/
-        │   │   └── front_camera/
-        │   │       ├── 00.jpg
-        │   │       ├── intrinsics.json
-        │   │       ├── poses.json
-        │   │       └── timestamps.json
-        │   ├── annotations/
-        │   │   └── cuboids/
-        │   │       ├── 00.pkl
-        │   │       └── ...
-        │   └── meta/
-        │       └── gps.json
-        ├── 002/
-        └── ...
+    FIXED: Coordinate transformation now matches PandaSet SDK (geometry.py)
+    
+    The key insight from PandaSet SDK:
+    - Points are in WORLD coordinates
+    - Camera pose is world_from_camera transform
+    - To get camera_from_world: inv(camera_pose)
+    - LiDAR pose is NOT needed for projection!
 
     Args:
         data_root (str): Root path to PandaSet.
@@ -72,11 +57,8 @@ class PandaSetDataset(Det3DDataset):
         test_mode (bool): If True, does not load annotations.
     """
 
-    # NOTE: Update these classes based on analyze_pandaset_labels.py output
-    # These should be the exact label strings from PandaSet, no mapping needed
     METAINFO = {
         'classes': ('Car', 'Pedestrian', 'Pedestrian with Object', 'Temporary Construction Barriers', 'Cones')
-        # ☝️ Replace with your top 5 classes after running analyze_pandaset_labels.py
     }
 
     def __init__(self,
@@ -91,14 +73,13 @@ class PandaSetDataset(Det3DDataset):
                  **kwargs):
         
         # Store pipeline before calling super().__init__
-        # We'll build it manually to use the correct registry
         self._pipeline_cfg = pipeline
         
         # Temporarily set pipeline to None to prevent base class from building it
         super().__init__(
             data_root=data_root,
             ann_file=ann_file,
-            pipeline=None,  # We'll build it ourselves
+            pipeline=None,
             modality=modality,
             box_type_3d=box_type_3d,
             filter_empty_gt=filter_empty_gt,
@@ -111,9 +92,6 @@ class PandaSetDataset(Det3DDataset):
         if self._pipeline_cfg is not None:
             self.pipeline = MMDet3DCompose(self._pipeline_cfg)
 
-    # -------------------------------------------------------
-    # Load dataset information from pre-built info file
-    # -------------------------------------------------------
     def load_data_list(self):
         """Load annotations and paths from ann_file."""
         assert os.path.exists(self.ann_file), f"Annotation file not found: {self.ann_file}"
@@ -121,20 +99,19 @@ class PandaSetDataset(Det3DDataset):
 
         data_list = []
         for info in infos:
-            # Expect info fields to be relative to data_root;
-            # keep them relative and control prefix via data_prefix in config
             lidar_rel = info['lidar_path']
             lidar_abs = os.path.join(self.data_root, lidar_rel) if not os.path.isabs(lidar_rel) else lidar_rel
             anno_rel = info.get('anno_path', None)
             anno_path = os.path.join(self.data_root, anno_rel) if (anno_rel is not None and not os.path.isabs(anno_rel)) else anno_rel
             calib = info.get('calib', None)
 
-            # Build single-view camera dict compatible with BEVFusion loaders
+            # Build single-view camera dict
             images = None
             img_rel = info.get('img_path', None)
             img_abs = None
             if isinstance(img_rel, str):
                 img_abs = os.path.join(self.data_root, img_rel) if not os.path.isabs(img_rel) else img_rel
+            
             if img_rel is not None and calib is not None and isinstance(calib, dict):
                 # Intrinsics K (3x3)
                 intr = calib.get('intrinsics', {})
@@ -146,60 +123,47 @@ class PandaSetDataset(Det3DDataset):
                                     [0.0, fy, cy],
                                     [0.0, 0.0, 1.0]], dtype=np.float32)
 
-                # Extrinsics: derive lidar->cam from poses if available
+                # FIXED: Extrinsics based on PandaSet SDK approach
+                # Points are in world coordinates
+                # camera_pose is world_from_camera
+                # We need camera_from_world = inv(camera_pose)
                 extr = calib.get('extrinsics', {})
-                def to_mat4(m):
-                    if m is None:
-                        return np.eye(4, dtype=np.float32)
-                    # array-like provided
-                    if isinstance(m, (list, tuple, np.ndarray)):
-                        arr = np.array(m)
-                        if arr.size == 16:
-                            return arr.reshape(4, 4).astype(np.float32)
-                        if arr.shape == (4, 4):
-                            return arr.astype(np.float32)
-                    # dict forms
-                    if isinstance(m, dict):
-                        if 'matrix' in m:
-                            return to_mat4(m['matrix'])
-                        # common rotation/translation patterns
-                        for rot_key in ('R', 'rotation', 'rot', 'r'):
-                            if rot_key in m:
-                                R = np.array(m[rot_key], dtype=np.float32).reshape(3, 3)
-                                t_val = m.get('t') or m.get('translation') or m.get('trans') or m.get('t_vec') or [0.0, 0.0, 0.0]
-                                t = np.array(t_val, dtype=np.float32).reshape(3)
-                                T = np.eye(4, dtype=np.float32)
-                                T[:3, :3] = R
-                                T[:3, 3] = t
-                                return T
-                        if 'position' in m:
-                            pos = m['position']
-                            t = np.array([pos.get('x', 0.0), pos.get('y', 0.0), pos.get('z', 0.0)], dtype=np.float32)
-                            yaw_val = m.get('heading', m.get('yaw', 0.0))
-                            if isinstance(yaw_val, (int, float)):
-                                yaw = float(yaw_val)
-                            elif isinstance(yaw_val, dict):
-                                yaw = float(yaw_val.get('rad', yaw_val.get('value', 0.0))) if any(
-                                    k in yaw_val for k in ('rad', 'value')) else 0.0
-                            else:
-                                yaw = 0.0
-                            c, s = np.cos(yaw), np.sin(yaw)
-                            R = np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]], dtype=np.float32)
-                            T = np.eye(4, dtype=np.float32)
-                            T[:3, :3] = R
-                            T[:3, 3] = t
-                            return T
-                    return np.eye(4, dtype=np.float32)
-
-                cam_pose = to_mat4(extr.get('camera_pose'))
-                lidar_pose = to_mat4(extr.get('lidar_pose'))
-                # Assume poses are world_from_sensor; then lidar2cam = inv(world_from_cam) @ world_from_lidar
-                def safe_inv(T):
-                    try:
-                        return np.linalg.inv(T)
-                    except Exception:
-                        return np.eye(4, dtype=np.float32)
-                lidar2cam = safe_inv(cam_pose) @ lidar_pose
+                camera_pose = extr.get('camera_pose', {})
+                
+                # Build camera pose matrix (world_from_camera)
+                cam_pos = camera_pose.get('position', {})
+                cam_heading = camera_pose.get('heading', {})
+                
+                cam_t = np.array([
+                    cam_pos.get('x', 0.0),
+                    cam_pos.get('y', 0.0),
+                    cam_pos.get('z', 0.0)
+                ], dtype=np.float32)
+                
+                # Quaternion to rotation matrix
+                w = cam_heading.get('w', 1.0)
+                x = cam_heading.get('x', 0.0)
+                y = cam_heading.get('y', 0.0)
+                z = cam_heading.get('z', 0.0)
+                
+                cam_R = np.array([
+                    [1-2*(y**2+z**2), 2*(x*y-w*z), 2*(x*z+w*y)],
+                    [2*(x*y+w*z), 1-2*(x**2+z**2), 2*(y*z-w*x)],
+                    [2*(x*z-w*y), 2*(y*z+w*x), 1-2*(x**2+y**2)]
+                ], dtype=np.float32)
+                
+                world_from_camera = np.eye(4, dtype=np.float32)
+                world_from_camera[:3, :3] = cam_R
+                world_from_camera[:3, 3] = cam_t
+                
+                # Get camera_from_world (this is what we need for projection)
+                # This matches PandaSet SDK: trans_lidar_to_camera = np.linalg.inv(camera_pose_mat)
+                camera_from_world = np.linalg.inv(world_from_camera)
+                
+                # For MMDetection3D, we call this lidar2cam because:
+                # - LiDAR points are in world coordinates
+                # - We need to transform world -> camera
+                lidar2cam = camera_from_world
 
                 images = {
                     'FRONT': {
@@ -221,9 +185,6 @@ class PandaSetDataset(Det3DDataset):
 
         return data_list
 
-    # -------------------------------------------------------
-    # Parse annotation file (.pkl with cuboids)
-    # -------------------------------------------------------
     def parse_ann_info(self, info):
         """Parse cuboid annotations into MMDetection3D format.
         
@@ -232,14 +193,10 @@ class PandaSetDataset(Det3DDataset):
         """
         anno_path = info.get('anno_path', None)
         
-        # Handle path conversion carefully
-        # If anno_path already starts with data_root, don't join again
         if anno_path is not None:
             if not os.path.isabs(anno_path):
-                # Check if path already contains data_root
                 if not anno_path.startswith(self.data_root):
                     anno_path = os.path.join(self.data_root, anno_path)
-                # If path starts with data_root (common case from info files), use as-is
         
         if (anno_path is None) or (not os.path.exists(anno_path)):
             empty_boxes = LiDARInstance3DBoxes(
@@ -252,28 +209,27 @@ class PandaSetDataset(Det3DDataset):
 
         # Load DataFrame with cuboids
         annos = pickle.load(open(anno_path, 'rb'))
-        # Filter annotations based on lidar type
+        
+        # Filter annotations based on lidar type (front forward LiDAR)
         lidar_type = 1
-        if lidar_type == 1: # Front Forward LiDAR
+        if lidar_type == 1:  # Front Forward LiDAR
             anno1 = annos[annos['cuboids.sensor_id']==1]
-            anno2= annos[annos['camera_used']==0]
-
+            anno2 = annos[annos['camera_used']==0]
             annos = concat([anno1, anno2], ignore_index=True).drop_duplicates().reset_index(drop=True)
-        elif lidar_type == 0: # 365 degree LiDAR
+        elif lidar_type == 0:  # 360 degree LiDAR
             annos = annos[annos['cuboids.sensor_id']==0]
-        elif lidar_type == -1: # Not seen in LiDAR sensor
+        elif lidar_type == -1:  # Not seen in LiDAR sensor
             annos = annos[annos['cuboids.sensor_id']==-1]
-        elif lidar_type is None: # All cuboids (not filtered)
+        elif lidar_type is None:  # All cuboids (not filtered)
             annos = annos
         else:
             raise ValueError(f"Invalid lidar type: {lidar_type}")
 
         gt_bboxes_3d, gt_labels_3d = [], []
         for _, obj in annos.iterrows():
-            # Each row is one cuboid
             label = obj.get('label', None)
             
-            # Only keep labels that are in our class list (ignore all others)
+            # Only keep labels that are in our class list
             if label not in self.metainfo['classes']:
                 continue
 
@@ -293,42 +249,39 @@ class PandaSetDataset(Det3DDataset):
         else:
             gt_bboxes_3d = np.array(gt_bboxes_3d, dtype=np.float32)
             gt_labels_3d = np.array(gt_labels_3d, dtype=np.int64)
-            # Pad to 10 dims to match head's code size (adds zeros for extra dims like velocity)
+            # Pad to 10 dims
             if gt_bboxes_3d.shape[1] < 10:
                 pad = np.zeros((gt_bboxes_3d.shape[0], 10 - gt_bboxes_3d.shape[1]), dtype=np.float32)
                 gt_bboxes_3d = np.concatenate([gt_bboxes_3d, pad], axis=1)
-            # Wrap numpy boxes into LiDARInstance3DBoxes
             boxes_3d = LiDARInstance3DBoxes(gt_bboxes_3d, box_dim=10, origin=(0.5, 0.5, 0.5))
+        
         ann_info = dict(
             gt_bboxes_3d=boxes_3d,
             gt_labels_3d=gt_labels_3d
         )
         return ann_info
 
-    # -------------------------------------------------------
-    # MMDet3D expects get_ann_info to return annotation dict
-    # -------------------------------------------------------
     def get_ann_info(self, index):
         info = self.data_list[index]
         return self.parse_ann_info(info)
 
     def prepare_data(self, index):
-        """Ensure ann_info exists before pipeline, then defer to base logic."""
-        # Borrow logic from Det3DDataset.prepare_data with a precheck
+        """Ensure ann_info exists before pipeline."""
         ori_input_dict = self.get_data_info(index)
         input_dict = ori_input_dict.copy()
         input_dict['box_type_3d'] = self.box_type_3d
         input_dict['box_mode_3d'] = self.box_mode_3d
-        # Camera image paths should already be converted in parse_data_info
+        
         if not self.test_mode:
             if 'ann_info' not in input_dict:
                 input_dict['ann_info'] = self.parse_ann_info(ori_input_dict)
             if self.filter_empty_gt and len(input_dict['ann_info']['gt_labels_3d']) == 0:
                 return None
+        
         example = self.pipeline(input_dict)
+        
         if not self.test_mode and self.filter_empty_gt:
             if example is None or len(example['data_samples'].gt_instances_3d.labels_3d) == 0:
                 return None
+        
         return example
-
-    # Use base class get_data_info implementation
