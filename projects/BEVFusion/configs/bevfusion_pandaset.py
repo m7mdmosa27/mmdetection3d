@@ -7,30 +7,64 @@ custom_imports = dict(
     imports=[
         'mmdet3d.datasets.pandaset_dataset',
         'projects.BEVFusion.bevfusion'
-    ], allow_failed_imports=True)
+    ], allow_failed_imports=False)
 
 # Dataset
 dataset_type = 'PandaSetDataset'
 data_root = 'data/pandaset/'
-class_names = ('Car', 'Pedestrian', 'Pickup Truck', 'Semi-truck', 'Cyclist')
+class_names = ('Car', 'Pedestrian', 'Pedestrian with Object', 'Temporary Construction Barriers', 'Cones')
 
 # Modalities and ranges
 point_cloud_range = [-54.0, -54.0, -5.0, 54.0, 54.0, 3.0]
 input_modality = dict(use_lidar=True, use_camera=True)
 backend_args = None
 
-# Model: enable image branch + fusion, adjust num_classes
+# Model configuration
+# PandaSet boxes: 9D format [x, y, z, dx, dy, dz, yaw, vx=0, vy=0]
+# BEVFusion head expects: center(2) + height(1) + dim(3) + rot(2) + vel(2) = 10D output
 model = dict(
-    # inherit all components from base; only override class dims and point dims
     bbox_head=dict(
         num_classes=len(class_names),
-        # remove velocity prediction and use 8-d code (no vel)
+        # Keep all heads including velocity (set to zero in data)
+        # This is the easiest approach - no need to modify BEVFusion head code
         common_heads=dict(
-            center=[2, 2], height=[1, 2], dim=[3, 2], rot=[2, 2]
+            center=[2, 2],   # x, y (heatmap center)
+            height=[1, 2],   # z
+            dim=[3, 2],      # dx, dy, dz
+            rot=[2, 2],      # sin(yaw), cos(yaw)
+            vel=[2, 2]       # vx, vy (will be zero for PandaSet)
         ),
-        bbox_coder=dict(code_size=8),
-        train_cfg=dict(dataset='PandaSet', code_weights=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]),
-        test_cfg=dict(dataset='PandaSet')
+        bbox_coder=dict(
+            type='TransFusionBBoxCoder',
+            pc_range=point_cloud_range[:2],
+            post_center_range=[-61.2, -61.2, -10.0, 61.2, 61.2, 10.0],
+            score_threshold=0.0,
+            out_size_factor=8,
+            voxel_size=[0.075, 0.075],
+            code_size=10  # Keep 10D (8 box params + 2 velocity)
+        ),
+        train_cfg=dict(
+            dataset='PandaSet',
+            point_cloud_range=point_cloud_range,
+            grid_size=[1440, 1440, 40],
+            voxel_size=[0.075, 0.075, 0.2],
+            out_size_factor=8,
+            gaussian_overlap=0.1,
+            min_radius=2,
+            pos_weight=-1,
+            # 10 weights: [x, y, z, dx, dy, dz, sin, cos, vx, vy]
+            # Lower weight for velocity since it's always zero
+            code_weights=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.1, 0.1],
+            assign_method='hungarian'
+        ),
+        test_cfg=dict(
+            dataset='PandaSet',
+            grid_size=[1440, 1440, 40],
+            out_size_factor=8,
+            voxel_size=[0.075, 0.075],
+            pc_range=point_cloud_range[:2],
+            nms_type=None
+        )
     ),
     pts_voxel_encoder=dict(num_features=4),
     pts_middle_encoder=dict(in_channels=4)
@@ -143,7 +177,6 @@ train_dataloader = dict(
         data_prefix=dict(pts=data_root, img=data_root),
         ann_file='pandaset_infos_train.pkl',
         pipeline=train_pipeline,
-        metainfo=dict(classes=class_names),
         modality=input_modality,
         default_cam_key='FRONT',
         box_type_3d='LiDAR',
@@ -151,7 +184,6 @@ train_dataloader = dict(
 )
 
 val_dataloader = None
-
 test_dataloader = None
 
 # Schedule/runtime
@@ -178,5 +210,6 @@ default_hooks = dict(
 )
 
 # Optional: initialize from nuScenes BEVFusion lidar+cam weights
-# load_from can be set to a nuScenes pretrained model if available
+# NOTE: Due to different num_classes (5 vs 10), you cannot directly load pretrained weights
+# You would need to selectively load only the backbone/neck weights, not the head
 # load_from = 'projects/BEVFusion/ckpts/bevfusion_lidar_cam_nuscenes.pth'
