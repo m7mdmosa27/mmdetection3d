@@ -1,8 +1,7 @@
 # mmdet3d/datasets/pandaset_dataset.py
 #
 # PandaSet custom dataset for MMDetection3D
-# FIXED VERSION with correct coordinate transformations
-# Based on PandaSet SDK geometry.py approach
+# FIXED VERSION with correct coordinate transformations and METAINFO
 
 import os
 import pickle
@@ -57,6 +56,7 @@ class PandaSetDataset(Det3DDataset):
         test_mode (bool): If True, does not load annotations.
     """
 
+    # FIXED: Updated to match bevfusion_pandaset.py config
     METAINFO = {
         'classes': ('Car', 'Pedestrian', 'Pedestrian with Object', 'Temporary Construction Barriers', 'Cones')
     }
@@ -233,27 +233,35 @@ class PandaSetDataset(Det3DDataset):
             if label not in self.metainfo['classes']:
                 continue
 
+            # 7D box: [x, y, z, dx, dy, dz, yaw]
+            # PandaSet doesn't have velocity, so we use 7D -> pad to 8D with one zero
             box = [
                 obj['position.x'], obj['position.y'], obj['position.z'],
                 obj['dimensions.x'], obj['dimensions.y'], obj['dimensions.z'],
-                obj['yaw']
+                obj['yaw'],
+                0.0  # Pad to 8D (some implementations need even dimensions)
             ]
             gt_bboxes_3d.append(box)
             gt_labels_3d.append(self.metainfo['classes'].index(label))
 
         if len(gt_bboxes_3d) == 0:
+            # Use 9D for LiDARInstance3DBoxes (standard MMDet3D format)
             boxes_3d = LiDARInstance3DBoxes(
-                np.zeros((0, 10), dtype=np.float32), box_dim=10, origin=(0.5, 0.5, 0.5)
+                np.zeros((0, 9), dtype=np.float32), box_dim=9, origin=(0.5, 0.5, 0.5)
             )
             gt_labels_3d = np.zeros((0,), dtype=np.int64)
         else:
             gt_bboxes_3d = np.array(gt_bboxes_3d, dtype=np.float32)
             gt_labels_3d = np.array(gt_labels_3d, dtype=np.int64)
-            # Pad to 10 dims
-            if gt_bboxes_3d.shape[1] < 10:
-                pad = np.zeros((gt_bboxes_3d.shape[0], 10 - gt_bboxes_3d.shape[1]), dtype=np.float32)
+            
+            # Pad to 9 dims (MMDet3D standard: 7 box params + 2 velocity)
+            # We set velocity to 0 since PandaSet doesn't have it
+            if gt_bboxes_3d.shape[1] < 9:
+                pad_size = 9 - gt_bboxes_3d.shape[1]
+                pad = np.zeros((gt_bboxes_3d.shape[0], pad_size), dtype=np.float32)
                 gt_bboxes_3d = np.concatenate([gt_bboxes_3d, pad], axis=1)
-            boxes_3d = LiDARInstance3DBoxes(gt_bboxes_3d, box_dim=10, origin=(0.5, 0.5, 0.5))
+            
+            boxes_3d = LiDARInstance3DBoxes(gt_bboxes_3d, box_dim=9, origin=(0.5, 0.5, 0.5))
         
         ann_info = dict(
             gt_bboxes_3d=boxes_3d,
