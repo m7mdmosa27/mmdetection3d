@@ -99,6 +99,7 @@ try:
         data_root=data_root,
         ann_file='pandaset_infos_train.pkl',
         pipeline=None,
+        data_prefix=dict(pts='', img='', sweeps=''),
         test_mode=False,
         modality=dict(use_lidar=True, use_camera=False),
         box_type_3d='LiDAR'
