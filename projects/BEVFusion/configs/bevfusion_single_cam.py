@@ -256,7 +256,7 @@ test_pipeline = [
 # ============================================================
 
 train_dataloader = dict(
-    batch_size=2,  # Reduce if OOM
+    batch_size=4,  # Reduce if OOM
     num_workers=4,
     sampler=dict(type='DefaultSampler', shuffle=True),
     dataset=dict(
