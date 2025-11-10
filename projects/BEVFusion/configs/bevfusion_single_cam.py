@@ -246,7 +246,7 @@ test_pipeline = [
         meta_keys=[
             'cam2img', 'ori_cam2img', 'lidar2cam', 'lidar2img', 'cam2lidar',
             'ori_lidar2img', 'img_aug_matrix', 'box_type_3d', 'sample_idx',
-            'lidar_path', 'img_path', 'num_pts_feats'
+            'lidar_path', 'img_path', 'num_pts_feats','img_aug_matrix', 'lidar_aug_matrix',
         ]
     )
 ]
@@ -273,19 +273,71 @@ train_dataloader = dict(
     )
 )
 
-val_dataloader = None
-test_dataloader = None
+# Validation dataloader
+val_dataloader = dict(
+    batch_size=1,
+    num_workers=2,
+    persistent_workers=False,
+    sampler=dict(type='DefaultSampler', shuffle=False),
+    dataset=dict(
+        _delete_=True,  # Important: clear base config
+        type=dataset_type,
+        data_root=data_root,
+        data_prefix=dict(pts=data_root, img=data_root),
+        ann_file='pandaset_infos_val.pkl',
+        pipeline=test_pipeline,
+        modality=input_modality,
+        default_cam_key='FRONT',
+        box_type_3d='LiDAR',
+        filter_empty_gt=False,
+        test_mode=True
+    )
+)
+
+# Test = validation (same split)
+test_dataloader = val_dataloader
 
 # ============================================================
 # Training schedule
 # ============================================================
 
 # Train from scratch - longer schedule needed
-train_cfg = dict(by_epoch=True, max_epochs=20, val_interval=0)
-val_cfg = None
-test_cfg = None
-val_evaluator = None
-test_evaluator = None
+# Training config
+train_cfg = dict(by_epoch=True, max_epochs=20, val_interval=2)
+
+# Validation config
+val_cfg = dict()
+
+# Test config
+test_cfg = dict()
+
+# Evaluators - use Indoor3DMetric (simple bbox evaluation)
+# val_evaluator = dict(
+#     _delete_=True,
+#     type='KittiMetric',
+#     ann_file=data_root + 'pandaset_infos_val.pkl',
+#     metric='bbox',
+#     pcd_limit_range=point_cloud_range
+# )
+# test_evaluator = val_evaluator
+# # Simple evaluator that just counts detections (no complex metrics)
+# val_evaluator = dict(
+#     type='BaseMetric'  # Minimal evaluator, just processes results
+# )
+# test_evaluator = val_evaluator
+
+val_evaluator = dict(
+    _delete_=True,
+    type='PandaSetMetric',
+    ann_file=data_root + 'pandaset_infos_val.pkl',
+    iou_thresholds=[0.001, 0.025, 0.05],  # Easy and hard thresholds
+    score_threshold=0.001,  # Minimum confidence score
+    prefix='pandaset',
+    collect_device = 'gpu'
+)
+test_evaluator = val_evaluator
+# val_cfg = dict()
+# test_cfg = dict()
 
 # Optimizer - lower LR for training from scratch
 optim_wrapper = dict(
