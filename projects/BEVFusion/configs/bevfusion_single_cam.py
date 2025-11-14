@@ -49,8 +49,11 @@ model = dict(
         patch_norm=True,
         out_indices=[1, 2, 3],
         with_cp=False,
-        convert_weights=False,  # Changed to False - no pretrained weights
-        init_cfg=None  # Train from scratch
+        convert_weights=True,  # Changed to False - no pretrained weights
+        init_cfg=dict(
+            type='Pretrained',
+            checkpoint='https://github.com/SwinTransformer/storage/releases/download/v1.0.0/swin_tiny_patch4_window7_224.pth'
+        )
     ),
     
     # Image neck (FPN)
@@ -156,16 +159,16 @@ train_pipeline = [
         load_dim=4,
         use_dim=4
     ),
-    # Transform world -> ego coordinates
-    dict(
-        type='PandaSetWorldToEgo'
-    ),
     # Load annotations
     dict(
         type='LoadAnnotations3D',
         with_bbox_3d=True,
         with_label_3d=True,
         with_attr_label=False
+    ),
+    # Transform world -> ego coordinates
+    dict(
+        type='PandaSetWorldToEgo'
     ),
     # Image augmentation for single camera
     dict(
@@ -330,8 +333,8 @@ val_evaluator = dict(
     _delete_=True,
     type='PandaSetMetric',
     ann_file=data_root + 'pandaset_infos_val.pkl',
-    iou_thresholds=[0.001, 0.025, 0.05],  # Easy and hard thresholds
-    score_threshold=0.001,  # Minimum confidence score
+    iou_thresholds=[0.25, 0.5, 0.7],  # Easy and hard thresholds
+    score_threshold=0.25,  # Minimum confidence score
     prefix='pandaset',
     collect_device = 'gpu'
 )
