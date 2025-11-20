@@ -314,21 +314,6 @@ val_cfg = dict()
 # Test config
 test_cfg = dict()
 
-# Evaluators - use Indoor3DMetric (simple bbox evaluation)
-# val_evaluator = dict(
-#     _delete_=True,
-#     type='KittiMetric',
-#     ann_file=data_root + 'pandaset_infos_val.pkl',
-#     metric='bbox',
-#     pcd_limit_range=point_cloud_range
-# )
-# test_evaluator = val_evaluator
-# # Simple evaluator that just counts detections (no complex metrics)
-# val_evaluator = dict(
-#     type='BaseMetric'  # Minimal evaluator, just processes results
-# )
-# test_evaluator = val_evaluator
-
 val_evaluator = dict(
     _delete_=True,
     type='PandaSetMetric',
@@ -339,8 +324,6 @@ val_evaluator = dict(
     collect_device = 'gpu'
 )
 test_evaluator = val_evaluator
-# val_cfg = dict()
-# test_cfg = dict()
 
 # Optimizer - lower LR for training from scratch
 optim_wrapper = dict(
