@@ -1,7 +1,7 @@
 # mmdet3d/datasets/pandaset_dataset.py
 #
 # PandaSet custom dataset for MMDetection3D
-# FIXED VERSION with correct coordinate transformations and METAINFO
+# FIXED VERSION with correct camera projection for BEVFusion
 
 import os
 import pickle
@@ -12,14 +12,11 @@ from mmdet3d.registry import DATASETS, TRANSFORMS
 from mmdet3d.structures.bbox_3d import LiDARInstance3DBoxes
 from mmengine.dataset import Compose
 from pandas import concat
+import copy
 
 
 class MMDet3DCompose(Compose):
-    """Custom Compose that uses mmdet3d.registry.TRANSFORMS instead of mmengine's.
-    
-    This fixes the issue where mmengine's Compose can't find mmdet3d transforms
-    because they're registered in a different registry.
-    """
+    """Custom Compose that uses mmdet3d.registry.TRANSFORMS instead of mmengine's."""
     
     def __init__(self, transforms):
         self.transforms = []
@@ -27,7 +24,6 @@ class MMDet3DCompose(Compose):
             transforms = [transforms]
         for transform in transforms:
             if isinstance(transform, dict):
-                # Use mmdet3d's TRANSFORMS registry instead of mmengine's
                 transform = TRANSFORMS.build(transform)
                 self.transforms.append(transform)
             else:
@@ -36,8 +32,19 @@ class MMDet3DCompose(Compose):
 
 @DATASETS.register_module()
 class PandaSetDataset(Det3DDataset):
-    """Custom dataset for PandaSet (front_camera + forward LiDAR, 3D cuboids).
-
+    """Custom dataset for PandaSet with fixed camera projection.
+    
+    Key fixes:
+    1. Proper ego-frame coordinate system
+    2. Correct lidar2cam for BEV pooling
+    3. Camera extrinsics that work with DepthLSSTransform
+    
+    The coordinate system:
+    - Points stored in WORLD coordinates (PandaSet format)
+    - Transformed to EGO coordinates (vehicle frame) by PandaSetWorldToEgo
+    - Camera extrinsics are ego_from_camera (for projection)
+    - lidar2cam is camera_from_ego (inverse of ego_from_camera)
+    
     FIXED: Coordinate transformation now matches PandaSet SDK (geometry.py)
     
     The key insight from PandaSet SDK:
@@ -56,9 +63,9 @@ class PandaSetDataset(Det3DDataset):
         test_mode (bool): If True, does not load annotations.
     """
 
-    # FIXED: Updated to match bevfusion_pandaset.py config
     METAINFO = {
-        'classes': ('Car', 'Pedestrian', 'Pedestrian with Object', 'Temporary Construction Barriers', 'Cones')
+        'classes': ('Car', 'Pedestrian', 'Pedestrian with Object', 
+                   'Temporary Construction Barriers', 'Cones')
     }
 
     def __init__(self,
@@ -72,10 +79,8 @@ class PandaSetDataset(Det3DDataset):
                  data_prefix=None,
                  **kwargs):
         
-        # Store pipeline before calling super().__init__
         self._pipeline_cfg = pipeline
         
-        # Temporarily set pipeline to None to prevent base class from building it
         super().__init__(
             data_root=data_root,
             ann_file=ann_file,
@@ -88,12 +93,11 @@ class PandaSetDataset(Det3DDataset):
             **kwargs
         )
         
-        # Now build the pipeline with the correct registry
         if self._pipeline_cfg is not None:
             self.pipeline = MMDet3DCompose(self._pipeline_cfg)
 
     def load_data_list(self):
-        """Load annotations and paths from ann_file."""
+        """Load annotations and build proper camera extrinsics."""
         assert os.path.exists(self.ann_file), f"Annotation file not found: {self.ann_file}"
         infos = mmengine.load(self.ann_file)
 
@@ -105,7 +109,6 @@ class PandaSetDataset(Det3DDataset):
             anno_path = os.path.join(self.data_root, anno_rel) if (anno_rel is not None and not os.path.isabs(anno_rel)) else anno_rel
             calib = info.get('calib', None)
 
-            # Build single-view camera dict
             images = None
             img_rel = info.get('img_path', None)
             img_abs = None
@@ -113,7 +116,7 @@ class PandaSetDataset(Det3DDataset):
                 img_abs = os.path.join(self.data_root, img_rel) if not os.path.isabs(img_rel) else img_rel
             
             if img_rel is not None and calib is not None and isinstance(calib, dict):
-                # Intrinsics K (3x3)
+                # Build camera intrinsics
                 intr = calib.get('intrinsics', {})
                 fx = float(intr.get('fx', 0.0))
                 fy = float(intr.get('fy', 0.0))
@@ -123,14 +126,16 @@ class PandaSetDataset(Det3DDataset):
                                     [0.0, fy, cy],
                                     [0.0, 0.0, 1.0]], dtype=np.float32)
 
-                # FIXED: Extrinsics based on PandaSet SDK approach
-                # Points are in world coordinates
-                # camera_pose is world_from_camera
-                # We need camera_from_world = inv(camera_pose)
+                # CRITICAL FIX: Build extrinsics for BEVFusion
+                # BEVFusion expects:
+                # - Points in EGO frame (done by PandaSetWorldToEgo transform)
+                # - lidar2cam = camera_from_ego transformation
+                
                 extr = calib.get('extrinsics', {})
                 camera_pose = extr.get('camera_pose', {})
+                lidar_pose = extr.get('lidar_pose', {})
                 
-                # Build camera pose matrix (world_from_camera)
+                # Build world_from_camera matrix
                 cam_pos = camera_pose.get('position', {})
                 cam_heading = camera_pose.get('heading', {})
                 
@@ -140,7 +145,6 @@ class PandaSetDataset(Det3DDataset):
                     cam_pos.get('z', 0.0)
                 ], dtype=np.float32)
                 
-                # Quaternion to rotation matrix
                 w = cam_heading.get('w', 1.0)
                 x = cam_heading.get('x', 0.0)
                 y = cam_heading.get('y', 0.0)
@@ -156,14 +160,38 @@ class PandaSetDataset(Det3DDataset):
                 world_from_camera[:3, :3] = cam_R
                 world_from_camera[:3, 3] = cam_t
                 
-                # Get camera_from_world (this is what we need for projection)
-                # This matches PandaSet SDK: trans_lidar_to_camera = np.linalg.inv(camera_pose_mat)
-                camera_from_world = np.linalg.inv(world_from_camera)
+                # Build world_from_ego (lidar) matrix
+                lidar_pos = lidar_pose.get('position', {})
+                lidar_heading = lidar_pose.get('heading', {})
                 
-                # For MMDetection3D, we call this lidar2cam because:
-                # - LiDAR points are in world coordinates
-                # - We need to transform world -> camera
-                lidar2cam = camera_from_world
+                lidar_t = np.array([
+                    lidar_pos.get('x', 0.0),
+                    lidar_pos.get('y', 0.0),
+                    lidar_pos.get('z', 0.0)
+                ], dtype=np.float32)
+                
+                w = lidar_heading.get('w', 1.0)
+                x = lidar_heading.get('x', 0.0)
+                y = lidar_heading.get('y', 0.0)
+                z = lidar_heading.get('z', 0.0)
+                
+                lidar_R = np.array([
+                    [1-2*(y**2+z**2), 2*(x*y-w*z), 2*(x*z+w*y)],
+                    [2*(x*y+w*z), 1-2*(x**2+z**2), 2*(y*z-w*x)],
+                    [2*(x*z-w*y), 2*(y*z+w*x), 1-2*(x**2+y**2)]
+                ], dtype=np.float32)
+                
+                world_from_ego = np.eye(4, dtype=np.float32)
+                world_from_ego[:3, :3] = lidar_R
+                world_from_ego[:3, 3] = lidar_t
+                
+                # CRITICAL: BEVFusion needs camera_from_ego
+                # camera_from_ego = camera_from_world @ world_from_ego
+                camera_from_world = np.linalg.inv(world_from_camera)
+                camera_from_ego = camera_from_world @ world_from_ego
+                
+                # This is what BEVFusion will use for projection
+                lidar2cam = camera_from_ego
 
                 images = {
                     'FRONT': {
@@ -186,11 +214,7 @@ class PandaSetDataset(Det3DDataset):
         return data_list
 
     def parse_ann_info(self, info):
-        """Parse cuboid annotations into MMDetection3D format.
-        
-        Only annotations with labels in METAINFO['classes'] are kept.
-        All other labels are ignored.
-        """
+        """Parse cuboid annotations into MMDetection3D format."""
         anno_path = info.get('anno_path', None)
         
         if anno_path is not None:
@@ -207,20 +231,19 @@ class PandaSetDataset(Det3DDataset):
                 gt_labels_3d=np.zeros((0,), dtype=np.int64)
             )
 
-        # Load DataFrame with cuboids
         annos = pickle.load(open(anno_path, 'rb'))
         
-        # Filter annotations based on lidar type (front forward LiDAR)
+        # Filter for front LiDAR
         lidar_type = 1
-        if lidar_type == 1:  # Front Forward LiDAR
+        if lidar_type == 1:
             anno1 = annos[annos['cuboids.sensor_id']==1]
             anno2 = annos[annos['camera_used']==0]
             annos = concat([anno1, anno2], ignore_index=True).drop_duplicates().reset_index(drop=True)
-        elif lidar_type == 0:  # 360 degree LiDAR
+        elif lidar_type == 0:
             annos = annos[annos['cuboids.sensor_id']==0]
-        elif lidar_type == -1:  # Not seen in LiDAR sensor
+        elif lidar_type == -1:
             annos = annos[annos['cuboids.sensor_id']==-1]
-        elif lidar_type is None:  # All cuboids (not filtered)
+        elif lidar_type is None:
             annos = annos
         else:
             raise ValueError(f"Invalid lidar type: {lidar_type}")
@@ -229,23 +252,20 @@ class PandaSetDataset(Det3DDataset):
         for _, obj in annos.iterrows():
             label = obj.get('label', None)
             
-            # Only keep labels that are in our class list
             if label not in self.metainfo['classes']:
                 continue
 
-            # 7D box: [x, y, z, dx, dy, dz, yaw]
-            # PandaSet doesn't have velocity, so we use 7D -> pad to 8D with one zero
+            # Build 7D box [x, y, z, dx, dy, dz, yaw]
             box = [
                 obj['position.x'], obj['position.y'], obj['position.z'],
                 obj['dimensions.x'], obj['dimensions.y'], obj['dimensions.z'],
                 obj['yaw'],
-                0.0  # Pad to 8D (some implementations need even dimensions)
+                0.0  # Pad to 8D
             ]
             gt_bboxes_3d.append(box)
             gt_labels_3d.append(self.metainfo['classes'].index(label))
 
         if len(gt_bboxes_3d) == 0:
-            # Use 9D for LiDARInstance3DBoxes (standard MMDet3D format)
             boxes_3d = LiDARInstance3DBoxes(
                 np.zeros((0, 9), dtype=np.float32), box_dim=9, origin=(0.5, 0.5, 0.5)
             )
@@ -254,8 +274,7 @@ class PandaSetDataset(Det3DDataset):
             gt_bboxes_3d = np.array(gt_bboxes_3d, dtype=np.float32)
             gt_labels_3d = np.array(gt_labels_3d, dtype=np.int64)
             
-            # Pad to 9 dims (MMDet3D standard: 7 box params + 2 velocity)
-            # We set velocity to 0 since PandaSet doesn't have it
+            # Pad to 9 dims (7 box + 2 velocity)
             if gt_bboxes_3d.shape[1] < 9:
                 pad_size = 9 - gt_bboxes_3d.shape[1]
                 pad = np.zeros((gt_bboxes_3d.shape[0], pad_size), dtype=np.float32)
@@ -280,10 +299,12 @@ class PandaSetDataset(Det3DDataset):
         input_dict['box_type_3d'] = self.box_type_3d
         input_dict['box_mode_3d'] = self.box_mode_3d
         
-        if not self.test_mode:
-            if 'ann_info' not in input_dict:
-                input_dict['ann_info'] = self.parse_ann_info(ori_input_dict)
-            if self.filter_empty_gt and len(input_dict['ann_info']['gt_labels_3d']) == 0:
+        # Always parse annotations (so evaluator can see ground truth)
+        input_dict['ann_info'] = self.parse_ann_info(ori_input_dict)
+
+        # Only skip samples with empty GT during training, not during testing
+        if not self.test_mode and self.filter_empty_gt:
+            if len(input_dict['ann_info']['gt_labels_3d']) == 0:
                 return None
         
         example = self.pipeline(input_dict)
@@ -293,3 +314,20 @@ class PandaSetDataset(Det3DDataset):
                 return None
         
         return example
+
+    def get_data_info(self, idx: int) -> dict:
+        """Get data info while preserving string sample_idx."""
+        # Get data from parent (handles serialization, etc.)
+        if self.serialize_data:
+            start_addr = 0 if idx == 0 else self.data_address[idx - 1].item()
+            end_addr = self.data_address[idx].item()
+            bytes = memoryview(self.data_bytes[start_addr:end_addr])
+            data_info = pickle.loads(bytes)
+        else:
+            data_info = copy.deepcopy(self.data_list[idx])
+        
+        # CRITICAL: Don't overwrite sample_idx with integer index
+        # Keep the original string sample_idx (e.g., '005_0078')
+        # Parent class would set data_info['sample_idx'] = idx here
+        
+        return data_info
