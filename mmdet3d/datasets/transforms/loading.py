@@ -5,6 +5,7 @@ from typing import List, Optional, Union
 import mmcv
 import mmengine
 import numpy as np
+import torch
 from mmcv.transforms import LoadImageFromFile
 from mmcv.transforms.base import BaseTransform
 from mmdet.datasets.transforms import LoadAnnotations
@@ -745,7 +746,107 @@ class LoadPointsFromDict(LoadPointsFromFile):
         results['points'] = points
         return results
 
-@MMENGINE_TRANSFORMS.register_module()
+@TRANSFORMS.register_module()
+class PandaSetWorldToEgo(BaseTransform):
+    """Transform PandaSet points AND boxes from world to ego coordinates.
+    
+    COMPLETE WORKING VERSION - Copy this entire class to your loading.py
+    """
+    
+    def __init__(self):
+        pass
+    
+    def transform(self, results: dict) -> dict:
+        """Transform points and boxes from world to ego coordinates."""
+        
+        # Get LiDAR pose from calib
+        calib = results.get('calib', None)
+        if calib is None:
+            return results
+        
+        extr = calib.get('extrinsics', {})
+        lidar_pose = extr.get('lidar_pose', None)
+        
+        if lidar_pose is None:
+            return results
+        
+        # Extract position and rotation from lidar_pose
+        pos = lidar_pose.get('position', {})
+        heading = lidar_pose.get('heading', {})
+        
+        # Translation vector
+        t = np.array([
+            pos.get('x', 0.0),
+            pos.get('y', 0.0),
+            pos.get('z', 0.0)
+        ], dtype=np.float32)
+        
+        # Quaternion to rotation matrix
+        w = heading.get('w', 1.0)
+        x = heading.get('x', 0.0)
+        y = heading.get('y', 0.0)
+        z = heading.get('z', 0.0)
+        
+        R = np.array([
+            [1-2*(y**2+z**2), 2*(x*y-w*z), 2*(x*z+w*y)],
+            [2*(x*y+w*z), 1-2*(x**2+z**2), 2*(y*z-w*x)],
+            [2*(x*z-w*y), 2*(y*z+w*x), 1-2*(x**2+y**2)]
+        ], dtype=np.float32)
+        
+        # ========================================
+        # 1. Transform POINTS
+        # ========================================
+        if 'points' in results:
+            points = results['points']
+            points_xyz = points.tensor.numpy()[:, :3]
+            
+            # Transform: points_ego = R^T @ (points_world - t)
+            points_ego = (R.T @ (points_xyz - t).T).T
+            
+            # Replace coordinates
+            points_tensor = points.tensor.clone()
+            points_tensor[:, :3] = torch.from_numpy(points_ego.astype(np.float32))
+            
+            points_class = type(points)
+            results['points'] = points_class(
+                points_tensor, 
+                points_dim=points.points_dim,
+                attribute_dims=points.attribute_dims
+            )
+        
+        # ========================================
+        # 2. Transform BOUNDING BOXES
+        # ========================================
+        if 'gt_bboxes_3d' in results:
+            boxes = results['gt_bboxes_3d']
+            
+            # Get numpy array
+            boxes_np = boxes.tensor.numpy().copy()
+            
+            # Transform centers (x, y, z)
+            centers_world = boxes_np[:, :3]
+            centers_ego = (R.T @ (centers_world - t).T).T
+            boxes_np[:, :3] = centers_ego
+            
+            # Transform yaw angles
+            yaws_world = boxes_np[:, 6]
+            yaw_vecs = np.stack([
+                np.cos(yaws_world), 
+                np.sin(yaws_world), 
+                np.zeros_like(yaws_world)
+            ], axis=1)
+            yaw_vecs_ego = (R.T @ yaw_vecs.T).T
+            yaws_ego = np.arctan2(yaw_vecs_ego[:, 1], yaw_vecs_ego[:, 0])
+            boxes_np[:, 6] = yaws_ego
+            
+            # Update tensor in-place
+            boxes.tensor = torch.from_numpy(boxes_np.astype(np.float32))
+        
+        return results
+    
+    def __repr__(self):
+        return f'{self.__class__.__name__}()'
+
 @TRANSFORMS.register_module()
 class LoadPandaSetPointsFromPKL(BaseTransform):
     """Load PandaSet LiDAR points from a .pkl file.
