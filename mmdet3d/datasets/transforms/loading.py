@@ -746,22 +746,43 @@ class LoadPointsFromDict(LoadPointsFromFile):
         results['points'] = points
         return results
 
+
 @TRANSFORMS.register_module()
 class PandaSetWorldToEgo(BaseTransform):
-    """Transform PandaSet points AND boxes from world to ego coordinates.
+    """Transform PandaSet points and boxes from world coordinates to ego-vehicle coordinates.
     
-    COMPLETE WORKING VERSION - Copy this entire class to your loading.py
+    PandaSet stores LiDAR points and annotations in world (global) coordinates.
+    BEVFusion expects ego-vehicle (local) coordinates centered on the vehicle.
+    
+    This transform uses the LiDAR pose to convert:
+    - Points: world -> ego-vehicle frame
+    - Bounding boxes: world -> ego-vehicle frame
+    
+    The transformation matrix is computed as:
+    - world_from_lidar = [R | t] where R is rotation from quaternion, t is translation
+    - lidar_from_world = inv(world_from_lidar)
+    - points_ego = lidar_from_world @ points_world
+    
+    Args:
+        None
     """
     
     def __init__(self):
         pass
     
     def transform(self, results: dict) -> dict:
-        """Transform points and boxes from world to ego coordinates."""
+        """Transform points and boxes from world to ego coordinates.
         
-        # Get LiDAR pose from calib
+        Args:
+            results (dict): Result dict with 'points', 'calib', and optionally 'gt_bboxes_3d'
+            
+        Returns:
+            dict: Result dict with transformed points and boxes in ego frame
+        """
+        # Get calibration info
         calib = results.get('calib', None)
         if calib is None:
+            # No calibration, assume already in ego frame
             return results
         
         extr = calib.get('extrinsics', {})
@@ -770,11 +791,11 @@ class PandaSetWorldToEgo(BaseTransform):
         if lidar_pose is None:
             return results
         
-        # Extract position and rotation from lidar_pose
+        # Extract LiDAR pose (world_from_lidar transform)
         pos = lidar_pose.get('position', {})
         heading = lidar_pose.get('heading', {})
         
-        # Translation vector
+        # Translation vector (LiDAR position in world)
         t = np.array([
             pos.get('x', 0.0),
             pos.get('y', 0.0),
@@ -787,59 +808,70 @@ class PandaSetWorldToEgo(BaseTransform):
         y = heading.get('y', 0.0)
         z = heading.get('z', 0.0)
         
+        # Compute rotation matrix from quaternion
         R = np.array([
             [1-2*(y**2+z**2), 2*(x*y-w*z), 2*(x*z+w*y)],
             [2*(x*y+w*z), 1-2*(x**2+z**2), 2*(y*z-w*x)],
             [2*(x*z-w*y), 2*(y*z+w*x), 1-2*(x**2+y**2)]
         ], dtype=np.float32)
         
-        # ========================================
-        # 1. Transform POINTS
-        # ========================================
-        if 'points' in results:
-            points = results['points']
-            points_xyz = points.tensor.numpy()[:, :3]
-            
-            # Transform: points_ego = R^T @ (points_world - t)
-            points_ego = (R.T @ (points_xyz - t).T).T
-            
-            # Replace coordinates
-            points_tensor = points.tensor.clone()
-            points_tensor[:, :3] = torch.from_numpy(points_ego.astype(np.float32))
-            
-            points_class = type(points)
-            results['points'] = points_class(
-                points_tensor, 
-                points_dim=points.points_dim,
-                attribute_dims=points.attribute_dims
-            )
+        # Build transformation matrices
+        world_from_lidar = np.eye(4, dtype=np.float32)
+        world_from_lidar[:3, :3] = R
+        world_from_lidar[:3, 3] = t
         
-        # ========================================
-        # 2. Transform BOUNDING BOXES
-        # ========================================
+        # Inverse to get ego frame (lidar_from_world)
+        lidar_from_world = np.linalg.inv(world_from_lidar)
+        
+        # ========== Transform Points ==========
+        points = results['points']
+        points_xyz = points.tensor.numpy()[:, :3]  # Extract x, y, z
+        
+        # Apply transformation: points_ego = R^T @ (points_world - t)
+        # This is equivalent to: points_ego = lidar_from_world @ [points_world, 1]
+        points_ego = (R.T @ (points_xyz - t).T).T
+        
+        # Update points tensor
+        points_tensor = points.tensor.clone()
+        points_tensor[:, :3] = torch.from_numpy(points_ego.astype(np.float32))
+        
+        # Reconstruct points object
+        points_class = type(points)
+        results['points'] = points_class(
+            points_tensor,
+            points_dim=points.points_dim,
+            attribute_dims=points.attribute_dims
+        )
+        
+        # ========== Transform Bounding Boxes ==========
         if 'gt_bboxes_3d' in results:
             boxes = results['gt_bboxes_3d']
-            
-            # Get numpy array
             boxes_np = boxes.tensor.numpy().copy()
             
-            # Transform centers (x, y, z)
+            # Transform box centers
             centers_world = boxes_np[:, :3]
             centers_ego = (R.T @ (centers_world - t).T).T
             boxes_np[:, :3] = centers_ego
             
             # Transform yaw angles
+            # Yaw is rotation around Z-axis, need to account for ego rotation
             yaws_world = boxes_np[:, 6]
+            
+            # Create unit vectors in yaw direction
             yaw_vecs = np.stack([
-                np.cos(yaws_world), 
-                np.sin(yaws_world), 
+                np.cos(yaws_world),
+                np.sin(yaws_world),
                 np.zeros_like(yaws_world)
             ], axis=1)
+            
+            # Transform the yaw vectors
             yaw_vecs_ego = (R.T @ yaw_vecs.T).T
+            
+            # Compute new yaw angles
             yaws_ego = np.arctan2(yaw_vecs_ego[:, 1], yaw_vecs_ego[:, 0])
             boxes_np[:, 6] = yaws_ego
             
-            # Update tensor in-place
+            # Update boxes tensor (CRITICAL: update in-place)
             boxes.tensor = torch.from_numpy(boxes_np.astype(np.float32))
         
         return results
