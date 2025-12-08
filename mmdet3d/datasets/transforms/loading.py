@@ -1,7 +1,7 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import copy
 from typing import List, Optional, Union
-
+import os
 import mmcv
 import mmengine
 import numpy as np
@@ -749,135 +749,90 @@ class LoadPointsFromDict(LoadPointsFromFile):
 
 @TRANSFORMS.register_module()
 class PandaSetWorldToEgo(BaseTransform):
-    """Transform PandaSet points and boxes from world coordinates to ego-vehicle coordinates.
+    """Transform PandaSet points from WORLD coordinates to EGO (LiDAR) frame.
     
-    PandaSet stores LiDAR points and annotations in world (global) coordinates.
-    BEVFusion expects ego-vehicle (local) coordinates centered on the vehicle.
+    PandaSet stores point clouds in WORLD (global) coordinates, but BEVFusion
+    and most detection heads expect points in EGO (vehicle/LiDAR) frame.
     
-    This transform uses the LiDAR pose to convert:
-    - Points: world -> ego-vehicle frame
-    - Bounding boxes: world -> ego-vehicle frame
+    This transform:
+    1. Reads the LiDAR pose (world_from_ego) from the results
+    2. Computes ego_from_world = inv(world_from_ego)
+    3. Applies this transform to all points
     
-    The transformation matrix is computed as:
-    - world_from_lidar = [R | t] where R is rotation from quaternion, t is translation
-    - lidar_from_world = inv(world_from_lidar)
-    - points_ego = lidar_from_world @ points_world
-    
-    Args:
-        None
+    IMPORTANT: This transform should NOT be applied to annotations, as they
+    are already in the sensor frame after filtering by sensor_id.
     """
     
     def __init__(self):
         pass
     
     def transform(self, results: dict) -> dict:
-        """Transform points and boxes from world to ego coordinates.
+        """Transform points from world to ego frame."""
+        points = results.get('points', None)
         
-        Args:
-            results (dict): Result dict with 'points', 'calib', and optionally 'gt_bboxes_3d'
-            
-        Returns:
-            dict: Result dict with transformed points and boxes in ego frame
-        """
-        # Get calibration info
+        if points is None:
+            return results
+        
+        # Get calibration data
         calib = results.get('calib', None)
+        
         if calib is None:
-            # No calibration, assume already in ego frame
+            # No calibration, assume points are already in ego frame
             return results
         
+        # Get LiDAR pose (world_from_ego)
         extr = calib.get('extrinsics', {})
-        lidar_pose = extr.get('lidar_pose', None)
+        lidar_pose = extr.get('lidar_pose', {})
         
-        if lidar_pose is None:
+        if not lidar_pose:
             return results
         
-        # Extract LiDAR pose (world_from_lidar transform)
+        # Build world_from_ego matrix
         pos = lidar_pose.get('position', {})
         heading = lidar_pose.get('heading', {})
         
-        # Translation vector (LiDAR position in world)
         t = np.array([
             pos.get('x', 0.0),
             pos.get('y', 0.0),
             pos.get('z', 0.0)
         ], dtype=np.float32)
         
-        # Quaternion to rotation matrix
         w = heading.get('w', 1.0)
         x = heading.get('x', 0.0)
         y = heading.get('y', 0.0)
         z = heading.get('z', 0.0)
         
-        # Compute rotation matrix from quaternion
+        # Quaternion to rotation matrix
         R = np.array([
-            [1-2*(y**2+z**2), 2*(x*y-w*z), 2*(x*z+w*y)],
-            [2*(x*y+w*z), 1-2*(x**2+z**2), 2*(y*z-w*x)],
-            [2*(x*z-w*y), 2*(y*z+w*x), 1-2*(x**2+y**2)]
+            [1 - 2*(y**2 + z**2), 2*(x*y - w*z), 2*(x*z + w*y)],
+            [2*(x*y + w*z), 1 - 2*(x**2 + z**2), 2*(y*z - w*x)],
+            [2*(x*z - w*y), 2*(y*z + w*x), 1 - 2*(x**2 + y**2)]
         ], dtype=np.float32)
         
-        # Build transformation matrices
-        world_from_lidar = np.eye(4, dtype=np.float32)
-        world_from_lidar[:3, :3] = R
-        world_from_lidar[:3, 3] = t
+        world_from_ego = np.eye(4, dtype=np.float32)
+        world_from_ego[:3, :3] = R
+        world_from_ego[:3, 3] = t
         
-        # Inverse to get ego frame (lidar_from_world)
-        lidar_from_world = np.linalg.inv(world_from_lidar)
+        # Compute ego_from_world
+        ego_from_world = np.linalg.inv(world_from_ego)
         
-        # ========== Transform Points ==========
-        points = results['points']
-        points_xyz = points.tensor.numpy()[:, :3]  # Extract x, y, z
+        # Transform points
+        pts_tensor = points.tensor.numpy()
+        pts_xyz = pts_tensor[:, :3]
         
-        # Apply transformation: points_ego = R^T @ (points_world - t)
-        # This is equivalent to: points_ego = lidar_from_world @ [points_world, 1]
-        points_ego = (R.T @ (points_xyz - t).T).T
+        # Apply rotation and translation
+        pts_xyz_ego = (ego_from_world[:3, :3] @ pts_xyz.T).T + ego_from_world[:3, 3]
         
-        # Update points tensor
-        points_tensor = points.tensor.clone()
-        points_tensor[:, :3] = torch.from_numpy(points_ego.astype(np.float32))
+        # Update points
+        pts_tensor[:, :3] = pts_xyz_ego
+        points.tensor = points.tensor.__class__(pts_tensor)
         
-        # Reconstruct points object
-        points_class = type(points)
-        results['points'] = points_class(
-            points_tensor,
-            points_dim=points.points_dim,
-            attribute_dims=points.attribute_dims
-        )
+        results['points'] = points
         
-        # ========== Transform Bounding Boxes ==========
-        if 'gt_bboxes_3d' in results:
-            boxes = results['gt_bboxes_3d']
-            boxes_np = boxes.tensor.numpy().copy()
-            
-            # Transform box centers
-            centers_world = boxes_np[:, :3]
-            centers_ego = (R.T @ (centers_world - t).T).T
-            boxes_np[:, :3] = centers_ego
-            
-            # Transform yaw angles
-            # Yaw is rotation around Z-axis, need to account for ego rotation
-            yaws_world = boxes_np[:, 6]
-            
-            # Create unit vectors in yaw direction
-            yaw_vecs = np.stack([
-                np.cos(yaws_world),
-                np.sin(yaws_world),
-                np.zeros_like(yaws_world)
-            ], axis=1)
-            
-            # Transform the yaw vectors
-            yaw_vecs_ego = (R.T @ yaw_vecs.T).T
-            
-            # Compute new yaw angles
-            yaws_ego = np.arctan2(yaw_vecs_ego[:, 1], yaw_vecs_ego[:, 0])
-            boxes_np[:, 6] = yaws_ego
-            
-            # Update boxes tensor (CRITICAL: update in-place)
-            boxes.tensor = torch.from_numpy(boxes_np.astype(np.float32))
+        # Store transformation for potential use by other components
+        results['lidar_aug_matrix'] = ego_from_world
         
         return results
-    
-    def __repr__(self):
-        return f'{self.__class__.__name__}()'
 
 @TRANSFORMS.register_module()
 class LoadPandaSetPointsFromPKL(BaseTransform):
@@ -909,25 +864,26 @@ class LoadPandaSetPointsFromPKL(BaseTransform):
 
     def _as_numpy(self, obj) -> np.ndarray:
         try:
-            import pandas as pd  # optional
+            import pandas as pd
         except Exception:
             pd = None
 
         if isinstance(obj, np.ndarray):
             arr = obj
         elif pd is not None and isinstance(obj, pd.DataFrame):
-            # obj = obj[obj["d"] == 1] 
+            # Filter for front LiDAR (d=1)
             lidar_type = 1
-            if lidar_type == 1: # Front Forward LiDAR
-                obj= obj[obj['d'] == 1]
-            elif lidar_type == 0: # 365 degree LiDAR
-                obj= obj[obj['d'] == 0]
-            elif lidar_type == -1: # Both LiDARs
-                obj= obj
+            if lidar_type == 1:  # Front Forward LiDAR
+                obj = obj[obj['d'] == 1]
+            elif lidar_type == 0:  # 360 degree LiDAR
+                obj = obj[obj['d'] == 0]
+            elif lidar_type == -1:  # Both LiDARs
+                obj = obj
             else:
                 raise ValueError(f"Invalid lidar type: {lidar_type}")
+            
             cols = [c for c in ['x', 'y', 'z', 'intensity'] if c in obj.columns]
-            obj = obj[cols] 
+            obj = obj[cols]
             arr = obj.to_numpy()
         elif isinstance(obj, list) and len(obj) > 0 and isinstance(obj[0], dict):
             xs = [d.get('x', 0.0) for d in obj]
@@ -936,7 +892,6 @@ class LoadPandaSetPointsFromPKL(BaseTransform):
             ins = [d.get('intensity', 0.0) for d in obj]
             arr = np.stack([xs, ys, zs, ins], axis=1)
         else:
-            # Fallback: try to convert to ndarray
             arr = np.array(obj)
 
         if arr.ndim == 1:
@@ -946,20 +901,129 @@ class LoadPandaSetPointsFromPKL(BaseTransform):
         if arr.shape[1] < 4:
             pad = np.zeros((arr.shape[0], 4 - arr.shape[1]), dtype=arr.dtype)
             arr = np.concatenate([arr, pad], axis=1)
+            
         return arr.astype(np.float32, copy=False)
 
     def transform(self, results: dict) -> dict:
         pts_file_path = results['lidar_points']['lidar_path']
-        # Local read; do not use file backend for pickle
-        import pickle, os
+        
+        import pickle
         with open(pts_file_path, 'rb') as f:
             obj = pickle.load(f)
+            
         points = self._as_numpy(obj)
         points = points[:, self.use_dim]
         points_class = get_points_type(self.coord_type)
         points = points_class(points, points_dim=points.shape[-1])
         results['points'] = points
         return results
+
+
+@TRANSFORMS.register_module()
+class BEVLoadMultiViewImageFromFiles(BaseTransform):
+    """Load multi-view images for BEVFusion.
+    
+    This transform loads images from all cameras specified in the 'images' dict
+    and stacks them for the view transformer.
+    
+    Args:
+        to_float32 (bool): Convert images to float32. Default: True.
+        color_type (str): Color type for image loading. Default: 'color'.
+        backend_args (dict, optional): Backend args for file loading.
+        num_views (int): Expected number of camera views. Default: 6.
+    """
+    
+    def __init__(self,
+                 to_float32: bool = True,
+                 color_type: str = 'color',
+                 backend_args: Optional[dict] = None,
+                 num_views: int = 6):
+        self.to_float32 = to_float32
+        self.color_type = color_type
+        self.backend_args = backend_args
+        self.num_views = num_views
+        
+        # Camera order (must match config)
+        self.camera_order = ['FRONT', 'BACK', 'FRONT_LEFT', 'FRONT_RIGHT', 'LEFT', 'RIGHT']
+
+    def transform(self, results: dict) -> dict:
+        """Load images from all cameras."""
+        import cv2
+        
+        images = results.get('images', {})
+        
+        if not images:
+            return results
+        
+        imgs = []
+        cam2imgs = []
+        lidar2cams = []
+        lidar2imgs = []
+        img_paths = []
+        
+        for cam_key in self.camera_order[:self.num_views]:
+            if cam_key not in images:
+                # Camera not available, create placeholder
+                continue
+            
+            cam_data = images[cam_key]
+            img_path = cam_data.get('img_path', None)
+            
+            if img_path is None or not os.path.exists(img_path):
+                continue
+            
+            # Load image
+            img = cv2.imread(img_path)
+            if img is None:
+                continue
+            
+            if self.color_type == 'color':
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            
+            if self.to_float32:
+                img = img.astype(np.float32)
+            
+            imgs.append(img)
+            img_paths.append(img_path)
+            
+            # Get calibration matrices
+            cam2img = cam_data.get('cam2img', np.eye(3, dtype=np.float32))
+            lidar2cam = cam_data.get('lidar2cam', np.eye(4, dtype=np.float32))
+            
+            cam2imgs.append(cam2img)
+            lidar2cams.append(lidar2cam)
+            
+            # Compute lidar2img = cam2img @ lidar2cam[:3, :]
+            lidar2img = cam2img @ lidar2cam[:3, :]
+            lidar2imgs.append(lidar2img)
+        
+        if len(imgs) == 0:
+            return results
+        
+        # Stack images: (N, H, W, C)
+        results['img'] = np.stack(imgs, axis=0)
+        results['img_path'] = img_paths
+        
+        # Stack calibration matrices
+        results['cam2img'] = np.stack(cam2imgs, axis=0)
+        results['ori_cam2img'] = np.stack(cam2imgs, axis=0)
+        results['lidar2cam'] = np.stack(lidar2cams, axis=0)
+        results['lidar2img'] = np.stack(lidar2imgs, axis=0)
+        results['ori_lidar2img'] = np.stack(lidar2imgs, axis=0)
+        
+        # Inverse for cam2lidar
+        cam2lidars = []
+        for lidar2cam in lidar2cams:
+            cam2lidar = np.linalg.inv(lidar2cam)
+            cam2lidars.append(cam2lidar)
+        results['cam2lidar'] = np.stack(cam2lidars, axis=0)
+        
+        # Initialize augmentation matrices
+        results['img_aug_matrix'] = np.stack([np.eye(4, dtype=np.float32) for _ in range(len(imgs))], axis=0)
+        results['lidar_aug_matrix'] = np.eye(4, dtype=np.float32)
+        
+        return results
+
 
 @TRANSFORMS.register_module()
 class LoadAnnotations3D(LoadAnnotations):
