@@ -6,6 +6,7 @@ import mmcv
 import mmengine
 import numpy as np
 import torch
+import cv2
 from mmcv.transforms import LoadImageFromFile
 from mmcv.transforms.base import BaseTransform
 from mmdet.datasets.transforms import LoadAnnotations
@@ -872,7 +873,7 @@ class LoadPandaSetPointsFromPKL(BaseTransform):
             arr = obj
         elif pd is not None and isinstance(obj, pd.DataFrame):
             # Filter for front LiDAR (d=1)
-            lidar_type = 1
+            lidar_type = -1
             if lidar_type == 1:  # Front Forward LiDAR
                 obj = obj[obj['d'] == 1]
             elif lidar_type == 0:  # 360 degree LiDAR
@@ -919,64 +920,66 @@ class LoadPandaSetPointsFromPKL(BaseTransform):
         return results
 
 
+# Camera order for PandaSet (matches nuScenes convention)
+PANDASET_CAMERA_ORDER = ['CAM_FRONT', 'CAM_FRONT_RIGHT', 'CAM_FRONT_LEFT', 'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_BACK_RIGHT']
+
+
 @TRANSFORMS.register_module()
-class BEVLoadMultiViewImageFromFiles(BaseTransform):
-    """Load multi-view images for BEVFusion.
+class LoadPandaSetMultiViewImages(BaseTransform):
+    """Load multi-view images for PandaSet BEVFusion.
     
-    This transform loads images from all cameras specified in the 'images' dict
-    and stacks them for the view transformer.
+    This transform explicitly loads all 6 camera images from the dataset's
+    'images' dict and stacks them correctly for BEVFusion.
     
     Args:
         to_float32 (bool): Convert images to float32. Default: True.
         color_type (str): Color type for image loading. Default: 'color'.
-        backend_args (dict, optional): Backend args for file loading.
-        num_views (int): Expected number of camera views. Default: 6.
+        num_views (int): Number of camera views. Default: 6.
     """
     
     def __init__(self,
                  to_float32: bool = True,
                  color_type: str = 'color',
-                 backend_args: Optional[dict] = None,
-                 num_views: int = 6):
+                 num_views: int = 6,
+                 **kwargs):
         self.to_float32 = to_float32
         self.color_type = color_type
-        self.backend_args = backend_args
         self.num_views = num_views
-        
-        # Camera order (must match config)
-        self.camera_order = ['FRONT', 'BACK', 'FRONT_LEFT', 'FRONT_RIGHT', 'LEFT', 'RIGHT']
 
     def transform(self, results: dict) -> dict:
         """Load images from all cameras."""
-        import cv2
+        images_dict = results.get('images', {})
         
-        images = results.get('images', {})
-        
-        if not images:
+        if not images_dict:
+            # No images, return as-is (LiDAR-only mode)
             return results
         
         imgs = []
+        img_paths = []
         cam2imgs = []
         lidar2cams = []
         lidar2imgs = []
-        img_paths = []
         
-        for cam_key in self.camera_order[:self.num_views]:
-            if cam_key not in images:
-                # Camera not available, create placeholder
+        # Load images in order
+        for cam_key in PANDASET_CAMERA_ORDER[:self.num_views]:
+            if cam_key not in images_dict:
+                print(f"Warning: Camera {cam_key} not found in images dict")
                 continue
             
-            cam_data = images[cam_key]
-            img_path = cam_data.get('img_path', None)
+            cam_info = images_dict[cam_key]
+            img_path = cam_info.get('img_path', None)
             
-            if img_path is None or not os.path.exists(img_path):
+            if img_path is None:
+                print(f"Warning: No img_path for camera {cam_key}")
                 continue
             
             # Load image
             img = cv2.imread(img_path)
             if img is None:
+                print(f"Warning: Failed to load image {img_path}")
                 continue
             
+            # Convert BGR to RGB
             if self.color_type == 'color':
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             
@@ -987,40 +990,55 @@ class BEVLoadMultiViewImageFromFiles(BaseTransform):
             img_paths.append(img_path)
             
             # Get calibration matrices
-            cam2img = cam_data.get('cam2img', np.eye(3, dtype=np.float32))
-            lidar2cam = cam_data.get('lidar2cam', np.eye(4, dtype=np.float32))
+            cam2img = cam_info.get('cam2img', np.eye(3, dtype=np.float32))
+            lidar2cam = cam_info.get('lidar2cam', np.eye(4, dtype=np.float32))
+            
+            # Ensure correct shapes
+            if cam2img.shape == (3, 3):
+                # Convert to 4x4 for consistency
+                cam2img_4x4 = np.eye(4, dtype=np.float32)
+                cam2img_4x4[:3, :3] = cam2img
+                cam2img = cam2img_4x4
             
             cam2imgs.append(cam2img)
             lidar2cams.append(lidar2cam)
             
-            # Compute lidar2img = cam2img @ lidar2cam[:3, :]
-            lidar2img = cam2img @ lidar2cam[:3, :]
+            # Compute lidar2img
+            lidar2img = cam2img @ lidar2cam
             lidar2imgs.append(lidar2img)
         
         if len(imgs) == 0:
+            print("Warning: No images were loaded!")
             return results
         
         # Stack images: (N, H, W, C)
         results['img'] = np.stack(imgs, axis=0)
+        results['img_shape'] = imgs[0].shape[:2]
+        results['ori_shape'] = imgs[0].shape[:2]
         results['img_path'] = img_paths
         
-        # Stack calibration matrices
+        # Stack calibration matrices: (N, 4, 4) or (N, 3, 3)
         results['cam2img'] = np.stack(cam2imgs, axis=0)
         results['ori_cam2img'] = np.stack(cam2imgs, axis=0)
         results['lidar2cam'] = np.stack(lidar2cams, axis=0)
         results['lidar2img'] = np.stack(lidar2imgs, axis=0)
         results['ori_lidar2img'] = np.stack(lidar2imgs, axis=0)
         
-        # Inverse for cam2lidar
+        # Compute cam2lidar (inverse of lidar2cam)
         cam2lidars = []
         for lidar2cam in lidar2cams:
-            cam2lidar = np.linalg.inv(lidar2cam)
+            try:
+                cam2lidar = np.linalg.inv(lidar2cam)
+            except:
+                cam2lidar = np.eye(4, dtype=np.float32)
             cam2lidars.append(cam2lidar)
         results['cam2lidar'] = np.stack(cam2lidars, axis=0)
         
         # Initialize augmentation matrices
-        results['img_aug_matrix'] = np.stack([np.eye(4, dtype=np.float32) for _ in range(len(imgs))], axis=0)
-        results['lidar_aug_matrix'] = np.eye(4, dtype=np.float32)
+        num_imgs = len(imgs)
+        results['img_aug_matrix'] = np.stack([np.eye(4, dtype=np.float32) for _ in range(num_imgs)], axis=0)
+        if 'lidar_aug_matrix' not in results:
+            results['lidar_aug_matrix'] = np.eye(4, dtype=np.float32)
         
         return results
 
@@ -1578,3 +1596,53 @@ class MultiModalityDet3DInferencerLoader(BaseTransform):
         multi_modality_inputs.update(imgs_inputs)
 
         return multi_modality_inputs
+
+# Debug transform to trace image count
+# Add this to mmdet3d/datasets/transforms/loading.py
+
+from mmdet3d.registry import TRANSFORMS
+from mmcv.transforms import BaseTransform
+
+@TRANSFORMS.register_module()
+class DebugImageCount(BaseTransform):
+    """Debug transform to print image count at various pipeline stages."""
+    
+    def __init__(self, stage_name='unknown'):
+        self.stage_name = stage_name
+        self.call_count = 0
+    
+    def transform(self, results: dict) -> dict:
+        self.call_count += 1
+        
+        if self.call_count <= 3:  # Only print first 3 calls
+            print(f"\n[DEBUG {self.stage_name}]")
+            
+            # Check images dict
+            if 'images' in results:
+                print(f"  images dict keys: {list(results['images'].keys())}")
+            else:
+                print(f"  NO 'images' key")
+            
+            # Check img (loaded images)
+            if 'img' in results:
+                if isinstance(results['img'], list):
+                    print(f"  img: list with {len(results['img'])} images")
+                    if len(results['img']) > 0:
+                        print(f"    First image shape: {results['img'][0].shape}")
+                else:
+                    print(f"  img: array with shape {results['img'].shape}")
+            else:
+                print(f"  NO 'img' key")
+            
+            # Check calibration matrices
+            for key in ['cam2img', 'lidar2cam', 'lidar2img']:
+                if key in results:
+                    val = results[key]
+                    if isinstance(val, list):
+                        print(f"  {key}: list with {len(val)} items")
+                    elif hasattr(val, 'shape'):
+                        print(f"  {key}: shape {val.shape}")
+                    else:
+                        print(f"  {key}: {type(val)}")
+        
+        return results
