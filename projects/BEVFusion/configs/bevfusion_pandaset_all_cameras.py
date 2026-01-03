@@ -4,7 +4,7 @@
 _base_ = ['./bevfusion_pandaset_lidar_only_complete.py']
 
 work_dir = './work_dirs/bevfusion_pandaset_all_cameras'
-
+data_root='data/pandaset/'
 # ============================================================
 # Camera Configuration - ALL 6 CAMERAS
 # ============================================================
@@ -83,8 +83,13 @@ model = dict(
         type='DepthLSSTransform',
         in_channels=256,
         out_channels=TOTAL_CAMERA_CHANNELS,
+<<<<<<< Updated upstream
         image_size=[256, 704],
         feature_size=[32, 88],
+=======
+        image_size=[192, 512],
+        feature_size=[24, 64],
+>>>>>>> Stashed changes
         xbound=[-54.0, 54.0, 0.3],
         ybound=[-54.0, 54.0, 0.3],
         zbound=[-10.0, 10.0, 20.0],
@@ -238,8 +243,13 @@ train_pipeline = [
     dict(
         type='ObjectSample',
         db_sampler=dict(
+<<<<<<< Updated upstream
             data_root='data/pandaset/',
             info_path='data/pandaset/pandaset_dbinfos_train.pkl',
+=======
+            data_root=data_root,
+            info_path=data_root + '/pandaset_dbinfos_train.pkl',
+>>>>>>> Stashed changes
             rate=0.0,
             prepare=dict(
                 filter_by_difficulty=[-1],
@@ -254,7 +264,11 @@ train_pipeline = [
     
     dict(
         type='ImageAug3D',
+<<<<<<< Updated upstream
         final_dim=[256, 704],
+=======
+        final_dim=[192, 512],
+>>>>>>> Stashed changes
         resize_lim=[0.48, 0.52],
         bot_pct_lim=[0.0, 0.0],
         rot_lim=[-5.4, 5.4],
@@ -316,7 +330,7 @@ test_pipeline = [
     
     dict(
         type='ImageAug3D',
-        final_dim=[256, 704],
+        final_dim=[192, 512],
         resize_lim=[0.5, 0.5],
         bot_pct_lim=[0.0, 0.0],
         rot_lim=[0.0, 0.0],
@@ -343,11 +357,21 @@ test_pipeline = [
 
 train_dataloader = dict(
     batch_size=1,
+<<<<<<< Updated upstream
     num_workers=4,
     sampler=dict(type='DefaultSampler', shuffle=True),
     dataset=dict(
         type='PandaSetDataset',
         data_root='data/pandaset/',
+=======
+    num_workers=2,
+    pin_memory=False,  # Save some memory
+    persistent_workers=False,
+    sampler=dict(type='DefaultSampler', shuffle=True),
+    dataset=dict(
+        type='PandaSetDataset',
+        data_root=data_root,
+>>>>>>> Stashed changes
         ann_file='pandaset_infos_train.pkl',
         pipeline=train_pipeline,
         modality=input_modality,
@@ -366,7 +390,11 @@ val_dataloader = dict(
     sampler=dict(type='DefaultSampler', shuffle=False),
     dataset=dict(
         type='PandaSetDataset',
+<<<<<<< Updated upstream
         data_root='data/pandaset/',
+=======
+        data_root=data_root,
+>>>>>>> Stashed changes
         ann_file='pandaset_infos_val.pkl',
         pipeline=test_pipeline,
         modality=input_modality,
@@ -387,7 +415,8 @@ test_dataloader = val_dataloader
 
 val_evaluator = dict(
     type='PandaSetMetric',
-    ann_file='data/pandaset/pandaset_infos_val.pkl',
+    data_root=data_root,
+    ann_file=data_root + 'pandaset_infos_val.pkl',
     iou_thresholds=[0.25, 0.5, 0.7],
     score_threshold=0.1,
     prefix='pandaset',
@@ -400,13 +429,22 @@ test_evaluator = val_evaluator
 # Training Schedule
 # ============================================================
 
+<<<<<<< Updated upstream
 train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=1, val_interval=1)
+=======
+train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=10, val_interval=1)
+>>>>>>> Stashed changes
 val_cfg = dict(type='ValLoop')
 test_cfg = dict(type='TestLoop')
 
 lr = 0.0001
 optim_wrapper = dict(
+<<<<<<< Updated upstream
     type='OptimWrapper',
+=======
+    type='AmpOptimWrapper',
+    accumulative_counts=4,
+>>>>>>> Stashed changes
     optimizer=dict(type='AdamW', lr=lr, weight_decay=0.01),
     clip_grad=dict(max_norm=35, norm_type=2)
 )

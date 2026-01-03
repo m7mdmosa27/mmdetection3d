@@ -22,7 +22,7 @@ custom_imports = dict(
 # Dataset Configuration
 # ============================================================
 dataset_type = 'PandaSetDataset'
-data_root = 'data/pandaset/'
+data_root='../../../opt/dlami/nvme/dataset/'
 
 # Class names (5 PandaSet classes covering 87.6% of annotations)
 class_names = (
@@ -373,8 +373,8 @@ test_pipeline = [
 
 # Training dataloader
 train_dataloader = dict(
-    batch_size=4,
-    num_workers=4,
+    batch_size=1,
+    num_workers=2,
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=True),
     dataset=dict(
@@ -421,6 +421,7 @@ test_dataloader = val_dataloader
 
 val_evaluator = dict(
     type='PandaSetMetric',
+    data_root=data_root,
     ann_file=data_root + 'pandaset_infos_val.pkl',
     iou_thresholds=[0.25, 0.5, 0.7],
     score_threshold=0.25,
@@ -435,7 +436,7 @@ test_evaluator = val_evaluator
 # ============================================================
 
 # Train for 20 epochs
-train_cfg = dict[str, str | int](
+train_cfg = dict(
     type='EpochBasedTrainLoop',
     max_epochs=20,
     val_interval=2

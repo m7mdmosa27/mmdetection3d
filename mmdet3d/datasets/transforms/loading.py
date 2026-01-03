@@ -925,122 +925,109 @@ PANDASET_CAMERA_ORDER = ['CAM_FRONT', 'CAM_FRONT_RIGHT', 'CAM_FRONT_LEFT', 'CAM_
 
 
 @TRANSFORMS.register_module()
-class LoadPandaSetMultiViewImages(BaseTransform):
-    """Load multi-view images for PandaSet BEVFusion.
+class BEVLoadMultiViewImageFromFiles(BaseTransform):
+    """Load multi-view images for BEVFusion.
     
-    This transform explicitly loads all 6 camera images from the dataset's
-    'images' dict and stacks them correctly for BEVFusion.
+    This transform loads images from all cameras specified in the 'images' dict
+    and stacks them for the view transformer.
     
     Args:
         to_float32 (bool): Convert images to float32. Default: True.
         color_type (str): Color type for image loading. Default: 'color'.
-        num_views (int): Number of camera views. Default: 6.
+        backend_args (dict, optional): Backend args for file loading.
+        num_views (int): Expected number of camera views. Default: 6.
     """
     
     def __init__(self,
                  to_float32: bool = True,
                  color_type: str = 'color',
-                 num_views: int = 6,
-                 **kwargs):
+                 backend_args: Optional[dict] = None,
+                 num_views: int = 6):
         self.to_float32 = to_float32
         self.color_type = color_type
+        self.backend_args = backend_args
         self.num_views = num_views
+        
+        # Camera order (must match config)
+        self.camera_order = ['FRONT', 'BACK', 'FRONT_LEFT', 'FRONT_RIGHT', 'LEFT', 'RIGHT']
 
     def transform(self, results: dict) -> dict:
         """Load images from all cameras."""
-        images_dict = results.get('images', {})
+        import cv2
         
-        if not images_dict:
-            # No images, return as-is (LiDAR-only mode)
+        images = results.get('images', {})
+        
+        if not images:
             return results
         
         imgs = []
-        img_paths = []
         cam2imgs = []
         lidar2cams = []
         lidar2imgs = []
+        img_paths = []
         
-        # Load images in order
-        for cam_key in PANDASET_CAMERA_ORDER[:self.num_views]:
-            if cam_key not in images_dict:
-                print(f"Warning: Camera {cam_key} not found in images dict")
+        for cam_key in self.camera_order[:self.num_views]:
+            if cam_key not in images:
+                # Camera not available, create placeholder
                 continue
             
-            cam_info = images_dict[cam_key]
-            img_path = cam_info.get('img_path', None)
+            cam_data = images[cam_key]
+            img_path = cam_data.get('img_path', None)
             
-            if img_path is None:
-                print(f"Warning: No img_path for camera {cam_key}")
+            if img_path is None or not os.path.exists(img_path):
                 continue
             
             # Load image
             img = cv2.imread(img_path)
             if img is None:
-                print(f"Warning: Failed to load image {img_path}")
                 continue
             
-            # Convert BGR to RGB
             if self.color_type == 'color':
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             
-            if self.to_float32:
-                img = img.astype(np.float32)
+#             if self.to_float32:
+#                 img = img.astype(np.float32)
             
-            imgs.append(img)
-            img_paths.append(img_path)
+#             imgs.append(img)
+#             img_paths.append(img_path)
             
             # Get calibration matrices
-            cam2img = cam_info.get('cam2img', np.eye(3, dtype=np.float32))
-            lidar2cam = cam_info.get('lidar2cam', np.eye(4, dtype=np.float32))
+            cam2img = cam_data.get('cam2img', np.eye(3, dtype=np.float32))
+            lidar2cam = cam_data.get('lidar2cam', np.eye(4, dtype=np.float32))
             
-            # Ensure correct shapes
-            if cam2img.shape == (3, 3):
-                # Convert to 4x4 for consistency
-                cam2img_4x4 = np.eye(4, dtype=np.float32)
-                cam2img_4x4[:3, :3] = cam2img
-                cam2img = cam2img_4x4
+#             cam2imgs.append(cam2img)
+#             lidar2cams.append(lidar2cam)
             
-            cam2imgs.append(cam2img)
-            lidar2cams.append(lidar2cam)
-            
-            # Compute lidar2img
-            lidar2img = cam2img @ lidar2cam
+            # Compute lidar2img = cam2img @ lidar2cam[:3, :]
+            lidar2img = cam2img @ lidar2cam[:3, :]
             lidar2imgs.append(lidar2img)
         
         if len(imgs) == 0:
-            print("Warning: No images were loaded!")
             return results
         
         # Stack images: (N, H, W, C)
         results['img'] = np.stack(imgs, axis=0)
-        results['img_shape'] = imgs[0].shape[:2]
-        results['ori_shape'] = imgs[0].shape[:2]
         results['img_path'] = img_paths
         
-        # Stack calibration matrices: (N, 4, 4) or (N, 3, 3)
+        # Stack calibration matrices
         results['cam2img'] = np.stack(cam2imgs, axis=0)
         results['ori_cam2img'] = np.stack(cam2imgs, axis=0)
         results['lidar2cam'] = np.stack(lidar2cams, axis=0)
         results['lidar2img'] = np.stack(lidar2imgs, axis=0)
         results['ori_lidar2img'] = np.stack(lidar2imgs, axis=0)
         
-        # Compute cam2lidar (inverse of lidar2cam)
+        # Inverse for cam2lidar
         cam2lidars = []
         for lidar2cam in lidar2cams:
-            try:
-                cam2lidar = np.linalg.inv(lidar2cam)
-            except:
-                cam2lidar = np.eye(4, dtype=np.float32)
+            cam2lidar = np.linalg.inv(lidar2cam)
             cam2lidars.append(cam2lidar)
         results['cam2lidar'] = np.stack(cam2lidars, axis=0)
         
         # Initialize augmentation matrices
-        num_imgs = len(imgs)
-        results['img_aug_matrix'] = np.stack([np.eye(4, dtype=np.float32) for _ in range(num_imgs)], axis=0)
-        if 'lidar_aug_matrix' not in results:
-            results['lidar_aug_matrix'] = np.eye(4, dtype=np.float32)
+        results['img_aug_matrix'] = np.stack([np.eye(4, dtype=np.float32) for _ in range(len(imgs))], axis=0)
+        results['lidar_aug_matrix'] = np.eye(4, dtype=np.float32)
         
-        return results
+#         return results
 
 
 @TRANSFORMS.register_module()
