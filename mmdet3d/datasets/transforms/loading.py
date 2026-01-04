@@ -924,110 +924,109 @@ class LoadPandaSetPointsFromPKL(BaseTransform):
 PANDASET_CAMERA_ORDER = ['CAM_FRONT', 'CAM_FRONT_RIGHT', 'CAM_FRONT_LEFT', 'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_BACK_RIGHT']
 
 
-@TRANSFORMS.register_module()
-class BEVLoadMultiViewImageFromFiles(BaseTransform):
-    """Load multi-view images for BEVFusion.
+# @TRANSFORMS.register_module()
+# class BEVLoadMultiViewImageFromFiles(BaseTransform):
+#     """Load multi-view images for BEVFusion.
     
-    This transform loads images from all cameras specified in the 'images' dict
-    and stacks them for the view transformer.
+#     This transform loads images from all cameras specified in the 'images' dict
+#     and stacks them for the view transformer.
     
-    Args:
-        to_float32 (bool): Convert images to float32. Default: True.
-        color_type (str): Color type for image loading. Default: 'color'.
-        backend_args (dict, optional): Backend args for file loading.
-        num_views (int): Expected number of camera views. Default: 6.
-    """
+#     Args:
+#         to_float32 (bool): Convert images to float32. Default: True.
+#         color_type (str): Color type for image loading. Default: 'color'.
+#         backend_args (dict, optional): Backend args for file loading.
+#         num_views (int): Expected number of camera views. Default: 6.
+#     """
     
-    def __init__(self,
-                 to_float32: bool = True,
-                 color_type: str = 'color',
-                 backend_args: Optional[dict] = None,
-                 num_views: int = 6):
-        self.to_float32 = to_float32
-        self.color_type = color_type
-        self.backend_args = backend_args
-        self.num_views = num_views
+#     def __init__(self,
+#                  to_float32: bool = True,
+#                  color_type: str = 'color',
+#                  backend_args: Optional[dict] = None,
+#                  num_views: int = 6):
+#         self.to_float32 = to_float32
+#         self.color_type = color_type
+#         self.backend_args = backend_args
+#         self.num_views = num_views
         
-        # Camera order (must match config)
-        self.camera_order = ['FRONT', 'BACK', 'FRONT_LEFT', 'FRONT_RIGHT', 'LEFT', 'RIGHT']
+#         # Camera order (must match config)
+#         self.camera_order = ['FRONT', 'BACK', 'FRONT_LEFT', 'FRONT_RIGHT', 'LEFT', 'RIGHT']
 
-    def transform(self, results: dict) -> dict:
-        """Load images from all cameras."""
-        import cv2
+#     def transform(self, results: dict) -> dict:
+#         """Load images from all cameras."""
+#         import cv2
         
-        images = results.get('images', {})
+#         images = results.get('images', {})
         
-        if not images:
-            return results
+#         if not images:
+#             return results
         
-        imgs = []
-        cam2imgs = []
-        lidar2cams = []
-        lidar2imgs = []
-        img_paths = []
+#         imgs = []
+#         cam2imgs = []
+#         lidar2cams = []
+#         lidar2imgs = []
+#         img_paths = []
         
-        for cam_key in self.camera_order[:self.num_views]:
-            if cam_key not in images:
-                # Camera not available, create placeholder
-                continue
+#         for cam_key in self.camera_order[:self.num_views]:
+#             if cam_key not in images:
+#                 # Camera not available, create placeholder
+#                 continue
             
-            cam_data = images[cam_key]
-            img_path = cam_data.get('img_path', None)
+#             cam_data = images[cam_key]
+#             img_path = cam_data.get('img_path', None)
             
-            if img_path is None or not os.path.exists(img_path):
-                continue
+#             if img_path is None or not os.path.exists(img_path):
+#                 continue
             
-            # Load image
-            img = cv2.imread(img_path)
-            if img is None:
-                continue
+#             # Load image
+#             img = cv2.imread(img_path)
+#             if img is None:
+#                 continue
             
-            if self.color_type == 'color':
-                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+#             if self.color_type == 'color':
+#                 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             
-#             if self.to_float32:
-#                 img = img.astype(np.float32)
+# #             if self.to_float32:
+# #                 img = img.astype(np.float32)
             
-#             imgs.append(img)
-#             img_paths.append(img_path)
+# #             imgs.append(img)
+# #             img_paths.append(img_path)
             
-            # Get calibration matrices
-            cam2img = cam_data.get('cam2img', np.eye(3, dtype=np.float32))
-            lidar2cam = cam_data.get('lidar2cam', np.eye(4, dtype=np.float32))
+#             # Get calibration matrices
+#             cam2img = cam_data.get('cam2img', np.eye(3, dtype=np.float32))
+#             lidar2cam = cam_data.get('lidar2cam', np.eye(4, dtype=np.float32))
             
-#             cam2imgs.append(cam2img)
-#             lidar2cams.append(lidar2cam)
+# #             cam2imgs.append(cam2img)
+# #             lidar2cams.append(lidar2cam)
             
-            # Compute lidar2img = cam2img @ lidar2cam[:3, :]
-            lidar2img = cam2img @ lidar2cam[:3, :]
-            lidar2imgs.append(lidar2img)
+#             # Compute lidar2img = cam2img @ lidar2cam[:3, :]
+#             lidar2img = cam2img @ lidar2cam[:3, :]
+#             lidar2imgs.append(lidar2img)
         
-        if len(imgs) == 0:
-            return results
+#         if len(imgs) == 0:
+#             return results
         
-        # Stack images: (N, H, W, C)
-        results['img'] = np.stack(imgs, axis=0)
-        results['img_path'] = img_paths
+#         # Stack images: (N, H, W, C)
+#         results['img'] = np.stack(imgs, axis=0)
+#         results['img_path'] = img_paths
         
-        # Stack calibration matrices
-        results['cam2img'] = np.stack(cam2imgs, axis=0)
-        results['ori_cam2img'] = np.stack(cam2imgs, axis=0)
-        results['lidar2cam'] = np.stack(lidar2cams, axis=0)
-        results['lidar2img'] = np.stack(lidar2imgs, axis=0)
-        results['ori_lidar2img'] = np.stack(lidar2imgs, axis=0)
+#         # Stack calibration matrices
+#         results['cam2img'] = np.stack(cam2imgs, axis=0)
+#         results['ori_cam2img'] = np.stack(cam2imgs, axis=0)
+#         results['lidar2cam'] = np.stack(lidar2cams, axis=0)
+#         results['lidar2img'] = np.stack(lidar2imgs, axis=0)
+#         results['ori_lidar2img'] = np.stack(lidar2imgs, axis=0)
         
-        # Inverse for cam2lidar
-        cam2lidars = []
-        for lidar2cam in lidar2cams:
-            cam2lidar = np.linalg.inv(lidar2cam)
-            cam2lidars.append(cam2lidar)
-        results['cam2lidar'] = np.stack(cam2lidars, axis=0)
-        
-        # Initialize augmentation matrices
-        results['img_aug_matrix'] = np.stack([np.eye(4, dtype=np.float32) for _ in range(len(imgs))], axis=0)
-        results['lidar_aug_matrix'] = np.eye(4, dtype=np.float32)
-        
-#         return results
+#         # Inverse for cam2lidar
+#         cam2lidars = []
+#         for lidar2cam in lidar2cams:
+#             cam2lidar = np.linalg.inv(lidar2cam)
+#             cam2lidars.append(cam2lidar)
+#         results['cam2lidar'] = np.stack(cam2lidars, axis=0)
+
+#         # Initialize augmentation matrices
+#         results['img_aug_matrix'] = np.stack([np.eye(4, dtype=np.float32) for _ in range(len(imgs))], axis=0)
+#         results['lidar_aug_matrix'] = np.eye(4, dtype=np.float32)        
+# #         return results
 
 
 @TRANSFORMS.register_module()

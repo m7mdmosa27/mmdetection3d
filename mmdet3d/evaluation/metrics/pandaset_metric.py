@@ -202,8 +202,8 @@ class PandaSetMetric(BaseMetric):
                     annos = pickle.load(f)
                 
                 # Filter for front LiDAR annotations
-                anno1 = annos[annos['cuboids.sensor_id']==1]
-                anno2 = annos[annos['camera_used']==0]
+                anno1 = annos
+                anno2 = annos
                 annos = concat([anno1, anno2], ignore_index=True).drop_duplicates().reset_index(drop=True)
                 
                 boxes, labels = [], []
