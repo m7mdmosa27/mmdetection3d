@@ -421,7 +421,6 @@ test_dataloader = val_dataloader
 
 val_evaluator = dict(
     type='PandaSetMetric',
-    data_root=data_root,
     ann_file=data_root + 'pandaset_infos_val.pkl',
     iou_thresholds=[0.25, 0.5, 0.7],
     score_threshold=0.25,
