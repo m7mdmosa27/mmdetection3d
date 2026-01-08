@@ -252,24 +252,23 @@ train_pipeline = [
         use_ground_plane=False
     ),
     
+    
+    dict(
+        type='BEVFusionGlobalRotScaleTrans',
+        scale_ratio_range=[0.98, 1.02],  # Reduced from [0.95, 1.05]
+        rot_range=[-0.3925, 0.3925],     # Reduced from ±45° to ±22.5°
+        translation_std=0.1               # Reduced from 0.5 to 0.1
+    ),
+
+    # Also reduce ImageAug3D rotation:
     dict(
         type='ImageAug3D',
         final_dim=[192, 512],
         resize_lim=[0.48, 0.52],
         bot_pct_lim=[0.0, 0.0],
-        rot_lim=[-5.4, 5.4],
+        rot_lim=[-2.7, 2.7],  # Reduced from [-5.4, 5.4]
         rand_flip=True,
         is_train=True
-    ),
-    
-    # DEBUG: After image augmentation
-    # dict(type='DebugImageCount', stage_name='AFTER_IMG_AUG'),
-    
-    dict(
-        type='BEVFusionGlobalRotScaleTrans',
-        scale_ratio_range=[0.95, 1.05],
-        rot_range=[-0.78539816, 0.78539816],
-        translation_std=0.5
     ),
     
     dict(type='BEVFusionRandomFlip3D'),
