@@ -34,7 +34,7 @@ def create_gt_database(data_root, ann_file, save_path):
             points_df = pickle.load(f)
         
         # Filter to front LiDAR
-        points_df = points_df[points_df['d'] == 1]
+        points_df = points_df
         points = points_df[['x', 'y', 'z', 'i']].values
         
         # Load annotations
@@ -43,7 +43,7 @@ def create_gt_database(data_root, ann_file, save_path):
             annos = pickle.load(f)
         
         # Filter annotations
-        annos = annos[annos['cuboids.sensor_id'] == 1]
+        annos = annos
         
         # Extract each object
         for _, obj in annos.iterrows():
@@ -71,7 +71,7 @@ def create_gt_database(data_root, ann_file, save_path):
             obj_points = points[mask].copy()
             
             # Need at least 5 points
-            if len(obj_points) < 0:
+            if len(obj_points) < 5:
                 continue
             
             # Center points relative to box center
