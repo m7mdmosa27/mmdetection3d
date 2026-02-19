@@ -1,97 +1,90 @@
-# mmdet3d/evaluation/metrics/pandaset_metric.py
-#
-# Improved PandaSet Metric for BEVFusion evaluation
-# With better debugging and coordinate handling
+"""
+PandaSetMetric - FIXED VERSION
 
-from typing import Dict, List, Optional, Sequence
-import numpy as np
-import pickle
+This version transforms GT boxes from WORLD to EGO coordinates to match predictions.
+
+Replace the content of:
+    mmdet3d/evaluation/metrics/pandaset_metric.py
+"""
+
 import os
+import pickle
+import numpy as np
+from typing import Dict, List, Optional, Sequence
+
 import mmengine
 from mmengine.evaluator import BaseMetric
 from mmdet3d.registry import METRICS
-from mmdet3d.structures import LiDARInstance3DBoxes
+from pandas import concat
+
+
+def quaternion_to_rotation_matrix(w, x, y, z):
+    """Convert quaternion to 3x3 rotation matrix."""
+    return np.array([
+        [1 - 2*(y**2 + z**2), 2*(x*y - w*z), 2*(x*z + w*y)],
+        [2*(x*y + w*z), 1 - 2*(x**2 + z**2), 2*(y*z - w*x)],
+        [2*(x*z - w*y), 2*(y*z + w*x), 1 - 2*(x**2 + y**2)]
+    ], dtype=np.float32)
+
+
+def build_transform_matrix(position, heading):
+    """Build 4x4 transformation matrix from position and quaternion heading."""
+    t = np.array([
+        position.get('x', 0.0),
+        position.get('y', 0.0),
+        position.get('z', 0.0)
+    ], dtype=np.float32)
+    
+    w = heading.get('w', 1.0)
+    x = heading.get('x', 0.0)
+    y = heading.get('y', 0.0)
+    z = heading.get('z', 0.0)
+    
+    R = quaternion_to_rotation_matrix(w, x, y, z)
+    
+    T = np.eye(4, dtype=np.float32)
+    T[:3, :3] = R
+    T[:3, 3] = t
+    return T
+
+
+def transform_boxes_world_to_ego(boxes, ego_from_world):
+    """Transform boxes from world to ego frame.
+    
+    Args:
+        boxes: (N, 9) array [x, y, z, dx, dy, dz, yaw, vx, vy]
+        ego_from_world: 4x4 transformation matrix
+        
+    Returns:
+        Transformed boxes (N, 9)
+    """
+    if len(boxes) == 0:
+        return boxes
+    
+    boxes = boxes.copy()
+    
+    R = ego_from_world[:3, :3]
+    t = ego_from_world[:3, 3]
+    
+    # Transform centers
+    centers_world = boxes[:, :3]
+    centers_ego = (R @ centers_world.T).T + t
+    
+    # Transform yaw
+    rotation_z = np.arctan2(R[1, 0], R[0, 0])
+    yaw_world = boxes[:, 6]
+    yaw_ego = yaw_world - rotation_z
+    yaw_ego = np.arctan2(np.sin(yaw_ego), np.cos(yaw_ego))
+    
+    # Update boxes
+    boxes[:, :3] = centers_ego
+    boxes[:, 6] = yaw_ego
+    
+    return boxes
 
 
 def box3d_iou_bev(boxes_a, boxes_b):
-    """Compute BEV IoU between two sets of boxes.
-    
-    Args:
-        boxes_a: (N, 9) array of boxes [x, y, z, dx, dy, dz, yaw, vx, vy]
-        boxes_b: (M, 9) array of boxes
-        
-    Returns:
-        (N, M) IoU matrix
-    """
-    try:
-        from shapely.geometry import Polygon
-    except ImportError:
-        mmengine.MMLogger.get_current_instance().warning(
-            "Shapely not installed, using simple BEV IoU"
-        )
-        return _simple_bev_iou(boxes_a, boxes_b)
-    
-    if len(boxes_a) == 0 or len(boxes_b) == 0:
-        return np.zeros((len(boxes_a), len(boxes_b)))
-    
-    ious = np.zeros((len(boxes_a), len(boxes_b)))
-    
-    for i, box_a in enumerate(boxes_a):
-        corners_a = _get_box_corners_2d(box_a)
-        try:
-            poly_a = Polygon(corners_a)
-            if not poly_a.is_valid:
-                poly_a = poly_a.buffer(0)
-        except:
-            continue
-        
-        for j, box_b in enumerate(boxes_b):
-            corners_b = _get_box_corners_2d(box_b)
-            try:
-                poly_b = Polygon(corners_b)
-                if not poly_b.is_valid:
-                    poly_b = poly_b.buffer(0)
-            except:
-                continue
-            
-            try:
-                intersection = poly_a.intersection(poly_b).area
-                union = poly_a.union(poly_b).area
-                ious[i, j] = intersection / union if union > 0 else 0
-            except:
-                continue
-    
-    return ious
-
-
-def _get_box_corners_2d(box):
-    """Get 2D box corners (BEV) from [x, y, z, dx, dy, dz, yaw, ...]"""
-    x, y = box[0], box[1]
-    dx, dy = box[3], box[4]
-    yaw = box[6]
-    
-    # Corner offsets (centered box)
-    corners = np.array([
-        [dx/2, dy/2],
-        [dx/2, -dy/2],
-        [-dx/2, -dy/2],
-        [-dx/2, dy/2]
-    ])
-    
-    # Rotation matrix
-    cos_yaw, sin_yaw = np.cos(yaw), np.sin(yaw)
-    rot = np.array([
-        [cos_yaw, -sin_yaw],
-        [sin_yaw, cos_yaw]
-    ])
-    
-    # Rotate and translate
-    corners = corners @ rot.T + np.array([x, y])
-    return corners
-
-
-def _simple_bev_iou(boxes_a, boxes_b):
-    """Simple axis-aligned BEV IoU (fallback without Shapely)."""
+    """Compute BEV IoU between two sets of boxes (axis-aligned approximation)."""
     if len(boxes_a) == 0 or len(boxes_b) == 0:
         return np.zeros((len(boxes_a), len(boxes_b)))
     
@@ -119,9 +112,12 @@ def _simple_bev_iou(boxes_a, boxes_b):
     return ious
 
 
-@METRICS.register_module()
+@METRICS.register_module(force=True)
 class PandaSetMetric(BaseMetric):
-    """PandaSet evaluation metric with improved debugging.
+    """PandaSet evaluation metric with coordinate frame alignment.
+    
+    This version transforms GT boxes from WORLD to EGO coordinates
+    to match the predictions.
     
     Args:
         ann_file: Path to annotation info file
@@ -145,18 +141,42 @@ class PandaSetMetric(BaseMetric):
                            'Temporary Construction Barriers', 'Cones']
         
         self.logger = mmengine.MMLogger.get_current_instance()
-        self.logger.info(f"PandaSetMetric initialized")
+        self.logger.info(f"PandaSetMetric initialized (with EGO transform)")
         self.logger.info(f"  - ann_file: {ann_file}")
         self.logger.info(f"  - iou_thresholds: {iou_thresholds}")
         self.logger.info(f"  - score_threshold: {score_threshold}")
         
-        # Load GT annotations
+        # Load GT annotations with coordinate transform
         self._load_ground_truth()
     
-    def _load_ground_truth(self):
-        """Load ground truth from annotation file."""
-        from pandas import concat
+    def _get_ego_from_world(self, info):
+        """Get ego_from_world transform from info."""
+        calib = info.get('calib', None)
+        if calib is None:
+            return None
         
+        extr = calib.get('extrinsics', {})
+        lidar_pose = extr.get('lidar_pose', {})
+        
+        if not lidar_pose:
+            return None
+        
+        position = lidar_pose.get('position', {})
+        heading = lidar_pose.get('heading', {})
+        
+        if not position or not heading:
+            return None
+        
+        # Build world_from_ego (LiDAR pose in world)
+        world_from_ego = build_transform_matrix(position, heading)
+        
+        # Compute inverse: ego_from_world
+        ego_from_world = np.linalg.inv(world_from_ego)
+        
+        return ego_from_world
+    
+    def _load_ground_truth(self):
+        """Load ground truth from annotation file and transform to EGO frame."""
         self.logger.info(f"Loading GT from {self.ann_file}")
         
         if not os.path.exists(self.ann_file):
@@ -167,10 +187,16 @@ class PandaSetMetric(BaseMetric):
         infos = mmengine.load(self.ann_file)
         self.logger.info(f"Loaded {len(infos)} info entries")
         
+        # Determine data_root from ann_file path
+        data_root = os.path.dirname(self.ann_file)
+        if not data_root:
+            data_root = 'data/pandaset'
+        
         self.gt_dict = {}
         loaded_count = 0
         failed_count = 0
         empty_count = 0
+        transform_count = 0
         
         for info in infos:
             sample_idx = str(info.get('sample_idx', ''))
@@ -184,8 +210,8 @@ class PandaSetMetric(BaseMetric):
             final_path = None
             possible_paths = [
                 anno_path,
+                os.path.join(data_root, anno_path),
                 os.path.join('data/pandaset', anno_path),
-                anno_path.replace('data/pandaset/', '').replace('data\\pandaset\\', ''),
             ]
             
             for path in possible_paths:
@@ -197,17 +223,18 @@ class PandaSetMetric(BaseMetric):
                 failed_count += 1
                 continue
             
+            # Get transformation matrix for this sample
+            ego_from_world = self._get_ego_from_world(info)
+            
             try:
                 with open(final_path, 'rb') as f:
                     annos = pickle.load(f)
                 
-                # Filter for front LiDAR annotations
-                anno1 = annos
-                anno2 = annos
-                annos = concat([anno1, anno2], ignore_index=True).drop_duplicates().reset_index(drop=True)
+                # Don't filter by sensor - use all annotations
+                annos_filtered = annos
                 
                 boxes, labels = [], []
-                for _, obj in annos.iterrows():
+                for _, obj in annos_filtered.iterrows():
                     label = obj.get('label', '')
                     if label in self.class_names:
                         boxes.append([
@@ -218,9 +245,17 @@ class PandaSetMetric(BaseMetric):
                         labels.append(self.class_names.index(label))
                 
                 if len(boxes) > 0:
+                    boxes = np.array(boxes, dtype=np.float32)
+                    labels = np.array(labels, dtype=np.int64)
+                    
+                    # Transform GT boxes from WORLD to EGO frame
+                    if ego_from_world is not None:
+                        boxes = transform_boxes_world_to_ego(boxes, ego_from_world)
+                        transform_count += 1
+                    
                     self.gt_dict[sample_idx] = {
-                        'boxes': np.array(boxes, dtype=np.float32),
-                        'labels': np.array(labels, dtype=np.int64)
+                        'boxes': boxes,
+                        'labels': labels
                     }
                     loaded_count += 1
                 else:
@@ -233,6 +268,7 @@ class PandaSetMetric(BaseMetric):
         
         self.logger.info(f"GT Loading Summary:")
         self.logger.info(f"  - Loaded: {loaded_count}")
+        self.logger.info(f"  - Transformed to EGO: {transform_count}")
         self.logger.info(f"  - Empty: {empty_count}")
         self.logger.info(f"  - Failed: {failed_count}")
         
@@ -240,6 +276,14 @@ class PandaSetMetric(BaseMetric):
         if len(self.gt_dict) > 0:
             total_boxes = sum(len(gt['boxes']) for gt in self.gt_dict.values())
             self.logger.info(f"  - Total GT boxes: {total_boxes}")
+            
+            # Show coordinate statistics for first few samples
+            sample_keys = list(self.gt_dict.keys())[:3]
+            for key in sample_keys:
+                gt = self.gt_dict[key]
+                if len(gt['boxes']) > 0:
+                    center_mean = gt['boxes'][:, :3].mean(axis=0)
+                    self.logger.info(f"  - Sample {key} GT center mean (EGO): [{center_mean[0]:.1f}, {center_mean[1]:.1f}, {center_mean[2]:.1f}]")
             
             for class_id, class_name in enumerate(self.class_names):
                 n_gt = sum((gt['labels'] == class_id).sum() for gt in self.gt_dict.values())
@@ -262,7 +306,6 @@ class PandaSetMetric(BaseMetric):
                 if len(pred_scores) > 0:
                     self.logger.info(f"  Score range: [{pred_scores.min():.4f}, {pred_scores.max():.4f}]")
                     self.logger.info(f"  Scores > {self.score_threshold}: {(pred_scores > self.score_threshold).sum()}")
-                    self.logger.info(f"  Top 5 scores: {sorted(pred_scores, reverse=True)[:5]}")
                     
                     # Show per-class predictions
                     for class_id, class_name in enumerate(self.class_names):
@@ -272,7 +315,7 @@ class PandaSetMetric(BaseMetric):
                             max_score = pred_scores[mask].max()
                             self.logger.info(f"  {class_name}: {n_pred} preds, max_score={max_score:.4f}")
                 
-                # Compare with GT
+                # Compare with GT - now both should be in EGO frame
                 if sample_idx in self.gt_dict:
                     gt = self.gt_dict[sample_idx]
                     self.logger.info(f"  GT boxes: {len(gt['boxes'])}")
@@ -282,7 +325,7 @@ class PandaSetMetric(BaseMetric):
                         pred_centers = pred_boxes[:, :3].mean(axis=0)
                         gt_centers = gt['boxes'][:, :3].mean(axis=0)
                         self.logger.info(f"  Pred center mean: [{pred_centers[0]:.1f}, {pred_centers[1]:.1f}, {pred_centers[2]:.1f}]")
-                        self.logger.info(f"  GT center mean: [{gt_centers[0]:.1f}, {gt_centers[1]:.1f}, {gt_centers[2]:.1f}]")
+                        self.logger.info(f"  GT center mean (EGO): [{gt_centers[0]:.1f}, {gt_centers[1]:.1f}, {gt_centers[2]:.1f}]")
             
             # Filter by score threshold
             keep = pred_scores >= self.score_threshold
@@ -300,48 +343,42 @@ class PandaSetMetric(BaseMetric):
         self.logger.info(f"Computing metrics for {len(results)} samples...")
         self.logger.info(f"{'='*60}")
         
-        # Check sample matching
-        pred_samples = set(r['sample_idx'] for r in results)
-        gt_samples = set(self.gt_dict.keys())
-        matched = pred_samples & gt_samples
+        # Match predictions with GT
+        matched = 0
+        for r in results:
+            if r['sample_idx'] in self.gt_dict:
+                matched += 1
         
-        self.logger.info(f"Prediction samples: {len(pred_samples)}")
-        self.logger.info(f"GT samples: {len(gt_samples)}")
-        self.logger.info(f"Matched samples: {len(matched)}")
+        self.logger.info(f"Prediction samples: {len(results)}")
+        self.logger.info(f"GT samples: {len(self.gt_dict)}")
+        self.logger.info(f"Matched samples: {matched}")
         
-        if len(matched) == 0:
-            self.logger.error("NO MATCHED SAMPLES! Check sample_idx format.")
-            self.logger.info(f"First 5 pred sample_idx: {list(pred_samples)[:5]}")
-            self.logger.info(f"First 5 GT sample_idx: {list(gt_samples)[:5]}")
-            return {f'mAP@{t}': 0.0 for t in self.iou_thresholds}
-        
-        # Count predictions and GT per class
+        # Compute per-class statistics
         self.logger.info(f"\nPer-class statistics:")
         for class_id, class_name in enumerate(self.class_names):
-            n_pred = sum(len(r['boxes'][r['labels'] == class_id]) for r in results)
-            n_gt = sum(len(gt['boxes'][gt['labels'] == class_id]) 
-                      for gt in self.gt_dict.values())
+            n_pred = sum((r['labels'] == class_id).sum() for r in results)
+            n_gt = sum((gt['labels'] == class_id).sum() for gt in self.gt_dict.values())
             self.logger.info(f"  {class_name}: {n_pred} preds, {n_gt} GT")
         
-        # Compute AP for each class and threshold
+        # Compute mAP for each IoU threshold
         metrics = {}
         
         for iou_thr in self.iou_thresholds:
             self.logger.info(f"\n--- IoU Threshold: {iou_thr} ---")
-            aps = []
             
+            aps = []
             for class_id, class_name in enumerate(self.class_names):
-                ap = self._compute_class_ap(results, class_id, iou_thr)
+                ap = self._compute_ap_for_class(results, class_id, iou_thr)
                 aps.append(ap)
                 self.logger.info(f"  {class_name} AP@{iou_thr}: {ap:.4f}")
             
-            mAP = np.mean(aps)
-            metrics[f'mAP@{iou_thr}'] = float(mAP)
-            self.logger.info(f"  mAP@{iou_thr}: {mAP:.4f}")
+            mean_ap = np.mean(aps)
+            self.logger.info(f"  mAP@{iou_thr}: {mean_ap:.4f}")
+            metrics[f'mAP@{iou_thr}'] = mean_ap
         
         return metrics
     
-    def _compute_class_ap(self, results, class_id, iou_thr):
+    def _compute_ap_for_class(self, results, class_id, iou_thr):
         """Compute AP for a single class."""
         # Collect all predictions and GT for this class
         all_pred_boxes = []

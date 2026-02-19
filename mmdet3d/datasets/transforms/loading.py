@@ -747,93 +747,221 @@ class LoadPointsFromDict(LoadPointsFromFile):
         results['points'] = points
         return results
 
+"""
+PandaSetWorldToEgo Transform - CORRECTED VERSION
 
-@TRANSFORMS.register_module()
-class PandaSetWorldToEgo(BaseTransform):
-    """Transform PandaSet points from WORLD coordinates to EGO (LiDAR) frame.
+This transform converts BOTH LiDAR points AND GT bounding boxes from 
+WORLD coordinates to EGO (vehicle/LiDAR) frame.
+
+PandaSet stores everything in WORLD coordinates:
+- LiDAR points: position.x/y/z are in world-coordinates
+- Annotations: position.x/y/z are in world-coordinates  
+
+BEVFusion expects everything in EGO frame (centered on the vehicle).
+
+USAGE:
+Replace the PandaSetWorldToEgo class in:
+    mmdet3d/datasets/transforms/loading.py
+
+Pipeline order should be:
+    1. LoadPandaSetPointsFromPKL (loads points in WORLD)
+    2. LoadAnnotations3D (loads GT boxes in WORLD)
+    3. PandaSetWorldToEgo (transforms BOTH to EGO)  <-- This transform
+    4. ... rest of pipeline
+"""
+
+import numpy as np
+from mmdet3d.registry import TRANSFORMS
+from mmcv.transforms import BaseTransform
+from mmdet3d.structures import LiDARInstance3DBoxes
+
+
+def quaternion_to_rotation_matrix(w, x, y, z):
+    """Convert quaternion to 3x3 rotation matrix."""
+    return np.array([
+        [1 - 2*(y**2 + z**2), 2*(x*y - w*z), 2*(x*z + w*y)],
+        [2*(x*y + w*z), 1 - 2*(x**2 + z**2), 2*(y*z - w*x)],
+        [2*(x*z - w*y), 2*(y*z + w*x), 1 - 2*(x**2 + y**2)]
+    ], dtype=np.float32)
+
+
+def build_transform_matrix(position, heading):
+    """Build 4x4 transformation matrix from position and quaternion heading."""
+    t = np.array([
+        position.get('x', 0.0),
+        position.get('y', 0.0),
+        position.get('z', 0.0)
+    ], dtype=np.float32)
     
-    PandaSet stores point clouds in WORLD (global) coordinates, but BEVFusion
-    and most detection heads expect points in EGO (vehicle/LiDAR) frame.
+    w = heading.get('w', 1.0)
+    x = heading.get('x', 0.0)
+    y = heading.get('y', 0.0)
+    z = heading.get('z', 0.0)
+    
+    R = quaternion_to_rotation_matrix(w, x, y, z)
+    
+    T = np.eye(4, dtype=np.float32)
+    T[:3, :3] = R
+    T[:3, 3] = t
+    return T
+
+
+@TRANSFORMS.register_module(force=True)
+class PandaSetWorldToEgo(BaseTransform):
+    """Transform PandaSet data from WORLD coordinates to EGO (LiDAR) frame.
+    
+    PandaSet stores LiDAR points AND annotations in WORLD (global) coordinates.
+    BEVFusion expects everything in EGO (vehicle/LiDAR) frame.
     
     This transform:
-    1. Reads the LiDAR pose (world_from_ego) from the results
+    1. Reads the LiDAR pose (world_from_ego) from calib
     2. Computes ego_from_world = inv(world_from_ego)
-    3. Applies this transform to all points
+    3. Transforms:
+       - LiDAR points (xyz)
+       - GT bounding boxes (center xyz and yaw)
     
-    IMPORTANT: This transform should NOT be applied to annotations, as they
-    are already in the sensor frame after filtering by sensor_id.
+    Args:
+        transform_gt_boxes (bool): Whether to transform GT boxes. Default True.
     """
     
-    def __init__(self):
-        pass
+    def __init__(self, transform_gt_boxes: bool = True):
+        self.transform_gt_boxes = transform_gt_boxes
     
-    def transform(self, results: dict) -> dict:
-        """Transform points from world to ego frame."""
-        points = results.get('points', None)
-        
-        if points is None:
-            return results
-        
-        # Get calibration data
+    def _get_ego_from_world(self, results: dict):
+        """Extract ego_from_world transformation matrix from results."""
         calib = results.get('calib', None)
         
         if calib is None:
-            # No calibration, assume points are already in ego frame
-            return results
+            return None
         
-        # Get LiDAR pose (world_from_ego)
         extr = calib.get('extrinsics', {})
         lidar_pose = extr.get('lidar_pose', {})
         
         if not lidar_pose:
-            return results
+            return None
         
-        # Build world_from_ego matrix
-        pos = lidar_pose.get('position', {})
+        position = lidar_pose.get('position', {})
         heading = lidar_pose.get('heading', {})
         
-        t = np.array([
-            pos.get('x', 0.0),
-            pos.get('y', 0.0),
-            pos.get('z', 0.0)
-        ], dtype=np.float32)
+        if not position or not heading:
+            return None
         
-        w = heading.get('w', 1.0)
-        x = heading.get('x', 0.0)
-        y = heading.get('y', 0.0)
-        z = heading.get('z', 0.0)
+        # Build world_from_ego (LiDAR pose in world)
+        world_from_ego = build_transform_matrix(position, heading)
         
-        # Quaternion to rotation matrix
-        R = np.array([
-            [1 - 2*(y**2 + z**2), 2*(x*y - w*z), 2*(x*z + w*y)],
-            [2*(x*y + w*z), 1 - 2*(x**2 + z**2), 2*(y*z - w*x)],
-            [2*(x*z - w*y), 2*(y*z + w*x), 1 - 2*(x**2 + y**2)]
-        ], dtype=np.float32)
-        
-        world_from_ego = np.eye(4, dtype=np.float32)
-        world_from_ego[:3, :3] = R
-        world_from_ego[:3, 3] = t
-        
-        # Compute ego_from_world
+        # Compute inverse: ego_from_world
         ego_from_world = np.linalg.inv(world_from_ego)
         
-        # Transform points
+        return ego_from_world
+    
+    def _transform_points(self, points, ego_from_world):
+        """Transform points from world to ego frame."""
         pts_tensor = points.tensor.numpy()
         pts_xyz = pts_tensor[:, :3]
         
-        # Apply rotation and translation
-        pts_xyz_ego = (ego_from_world[:3, :3] @ pts_xyz.T).T + ego_from_world[:3, 3]
+        # Apply transformation: p_ego = R @ p_world + t
+        R = ego_from_world[:3, :3]
+        t = ego_from_world[:3, 3]
+        pts_xyz_ego = (R @ pts_xyz.T).T + t
         
         # Update points
         pts_tensor[:, :3] = pts_xyz_ego
         points.tensor = points.tensor.__class__(pts_tensor)
         
-        results['points'] = points
+        return points
+    
+    def _transform_boxes(self, gt_bboxes_3d, ego_from_world):
+        """Transform 3D bounding boxes from world to ego frame.
         
-        # Store transformation for potential use by other components
+        Args:
+            gt_bboxes_3d: LiDARInstance3DBoxes 
+                Format: [x, y, z, dx, dy, dz, yaw, ...]
+            ego_from_world: 4x4 transformation matrix
+            
+        Returns:
+            Transformed LiDARInstance3DBoxes
+        """
+        if gt_bboxes_3d is None or len(gt_bboxes_3d) == 0:
+            return gt_bboxes_3d
+        
+        # Get box tensor
+        boxes = gt_bboxes_3d.tensor.numpy().copy()  # (N, 7+)
+        
+        # Extract transformation components
+        R = ego_from_world[:3, :3]
+        t = ego_from_world[:3, 3]
+        
+        # Transform centers: p_ego = R @ p_world + t
+        centers_world = boxes[:, :3]  # (N, 3)
+        centers_ego = (R @ centers_world.T).T + t  # (N, 3)
+        
+        # Dimensions don't change (dx, dy, dz stay the same)
+        # dims = boxes[:, 3:6]  # unchanged
+        
+        # Transform yaw
+        # The rotation around Z axis from ego_from_world
+        # For R = Rz(theta): R[0,0] = cos(theta), R[1,0] = sin(theta)
+        rotation_z = np.arctan2(R[1, 0], R[0, 0])
+        
+        yaw_world = boxes[:, 6]  # (N,)
+        yaw_ego = yaw_world - rotation_z
+        
+        # Normalize yaw to [-pi, pi]
+        yaw_ego = np.arctan2(np.sin(yaw_ego), np.cos(yaw_ego))
+        
+        # Update boxes
+        boxes[:, :3] = centers_ego
+        boxes[:, 6] = yaw_ego
+        
+        # Create new box instance
+        # Use same box_dim and with_yaw, default origin (0.5, 0.5, 0.5)
+        return LiDARInstance3DBoxes(
+            boxes,
+            box_dim=gt_bboxes_3d.box_dim,
+            with_yaw=gt_bboxes_3d.with_yaw
+        )
+    
+    def transform(self, results: dict) -> dict:
+        """Transform points and GT boxes from world to ego frame.
+        
+        Args:
+            results (dict): Result dict containing:
+                - 'points': LiDAR points
+                - 'gt_bboxes_3d': GT boxes (optional)
+                - 'calib': Calibration with LiDAR pose
+                
+        Returns:
+            dict: Results with transformed points and GT boxes
+        """
+        # Get transformation matrix
+        ego_from_world = self._get_ego_from_world(results)
+        
+        if ego_from_world is None:
+            # No transformation available - return as-is
+            # This shouldn't happen if info file is correct
+            return results
+        
+        # Transform points
+        points = results.get('points', None)
+        if points is not None:
+            results['points'] = self._transform_points(points, ego_from_world)
+        
+        # Transform GT boxes
+        if self.transform_gt_boxes:
+            gt_bboxes_3d = results.get('gt_bboxes_3d', None)
+            if gt_bboxes_3d is not None and len(gt_bboxes_3d) > 0:
+                results['gt_bboxes_3d'] = self._transform_boxes(
+                    gt_bboxes_3d, ego_from_world
+                )
+        
+        # Store transformation matrix for other components
+        results['ego_from_world'] = ego_from_world
         results['lidar_aug_matrix'] = ego_from_world
         
         return results
+    
+    def __repr__(self):
+        return f'{self.__class__.__name__}(transform_gt_boxes={self.transform_gt_boxes})'
 
 @TRANSFORMS.register_module()
 class LoadPandaSetPointsFromPKL(BaseTransform):

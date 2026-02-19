@@ -255,18 +255,18 @@ train_pipeline = [
     
     dict(
         type='BEVFusionGlobalRotScaleTrans',
-        scale_ratio_range=[0.98, 1.02],  # Reduced from [0.95, 1.05]
-        rot_range=[-0.3925, 0.3925],     # Reduced from ±45° to ±22.5°
-        translation_std=0.1               # Reduced from 0.5 to 0.1
+        scale_ratio_range=[0.95, 1.05],
+        rot_range=[-0.78539816, 0.78539816],
+        translation_std=0.5
     ),
 
     # Also reduce ImageAug3D rotation:
     dict(
         type='ImageAug3D',
         final_dim=[192, 512],
-        resize_lim=[0.48, 0.52],
+        resize_lim=[0.5, 0.6],
         bot_pct_lim=[0.0, 0.0],
-        rot_lim=[-2.7, 2.7],  # Reduced from [-5.4, 5.4]
+        rot_lim=[-5.0, 5.0],  # Reduced from [-5.4, 5.4]
         rand_flip=True,
         is_train=True
     ),
@@ -388,7 +388,7 @@ val_evaluator = dict(
     type='PandaSetMetric',
     ann_file=data_root + 'pandaset_infos_val.pkl',
     iou_thresholds=[0.25, 0.5, 0.7],
-    score_threshold=0.1,
+    score_threshold=0.001,
     prefix='pandaset',
     collect_device='cpu'
 )
@@ -399,20 +399,20 @@ test_evaluator = val_evaluator
 # Training Schedule
 # ============================================================
 
-train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=10, val_interval=1)
+train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=100, val_interval=2)
 val_cfg = dict(type='ValLoop')
 test_cfg = dict(type='TestLoop')
 
-lr = 0.0001
+lr = 1.2e-4 
 optim_wrapper = dict(
     type='AmpOptimWrapper',
-    optimizer=dict(type='AdamW', lr=lr, weight_decay=0.01),
+    optimizer=dict(type='AdamW', lr=lr, weight_decay=0.02),
     clip_grad=dict(max_norm=35, norm_type=2)
 )
 
 param_scheduler = [
-    dict(type='LinearLR', start_factor=0.1, by_epoch=False, begin=0, end=1000),
-    dict(type='CosineAnnealingLR', T_max=24, eta_min_ratio=1e-4, begin=0, end=24, by_epoch=True)
+    dict(type='LinearLR', start_factor=0.1, by_epoch=False, begin=0, end=300),
+    dict(type='CosineAnnealingLR', T_max=50, eta_min_ratio=1e-4, begin=0, end=50, by_epoch=True)
 ]
 
 auto_scale_lr = dict(enable=False, base_batch_size=16)
@@ -426,4 +426,13 @@ default_hooks = dict(
     visualization=dict(type='Det3DVisualizationHook')
 )
 
-custom_hooks = [dict(type='DisableObjectSampleHook', disable_after_epoch=15)]
+custom_hooks = [
+    dict(type='DisableObjectSampleHook', disable_after_epoch=25),
+    dict(
+        type='MemoryManagementHook', 
+        clear_interval=50, 
+        empty_cache=True, 
+        synchronize=False,
+        clear_after_resume=True  # Critical: Clear cache after resume to fix OOM
+    )
+]

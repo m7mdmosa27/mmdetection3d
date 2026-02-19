@@ -1,0 +1,1410 @@
+nohup: ignoring input
+02/19 20:40:00 - mmengine - WARNING - AMP training is already enabled in your config.
+02/19 20:40:01 - mmengine - INFO - 
+------------------------------------------------------------
+System environment:
+    sys.platform: linux
+    Python: 3.8.20 (default, Oct  3 2024, 15:24:27) [GCC 11.2.0]
+    CUDA available: True
+    MUSA available: False
+    numpy_random_seed: 0
+    GPU 0: NVIDIA A10G
+    CUDA_HOME: /usr/local/cuda-11.8
+    NVCC: Cuda compilation tools, release 11.8, V11.8.89
+    GCC: gcc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0
+    PyTorch: 2.1.0+cu118
+    PyTorch compiling details: PyTorch built with:
+  - GCC 9.3
+  - C++ Version: 201703
+  - Intel(R) oneAPI Math Kernel Library Version 2022.2-Product Build 20220804 for Intel(R) 64 architecture applications
+  - Intel(R) MKL-DNN v3.1.1 (Git Hash 64f6bcbcbab628e96f33a62c3e975f8535a7bde4)
+  - OpenMP 201511 (a.k.a. OpenMP 4.5)
+  - LAPACK is enabled (usually provided by MKL)
+  - NNPACK is enabled
+  - CPU capability usage: AVX2
+  - CUDA Runtime 11.8
+  - NVCC architecture flags: -gencode;arch=compute_50,code=sm_50;-gencode;arch=compute_60,code=sm_60;-gencode;arch=compute_70,code=sm_70;-gencode;arch=compute_75,code=sm_75;-gencode;arch=compute_80,code=sm_80;-gencode;arch=compute_86,code=sm_86;-gencode;arch=compute_37,code=sm_37;-gencode;arch=compute_90,code=sm_90
+  - CuDNN 8.7
+  - Magma 2.6.1
+  - Build settings: BLAS_INFO=mkl, BUILD_TYPE=Release, CUDA_VERSION=11.8, CUDNN_VERSION=8.7.0, CXX_COMPILER=/opt/rh/devtoolset-9/root/usr/bin/c++, CXX_FLAGS= -D_GLIBCXX_USE_CXX11_ABI=0 -fabi-version=11 -fvisibility-inlines-hidden -DUSE_PTHREADPOOL -DNDEBUG -DUSE_KINETO -DLIBKINETO_NOROCTRACER -DUSE_FBGEMM -DUSE_QNNPACK -DUSE_PYTORCH_QNNPACK -DUSE_XNNPACK -DSYMBOLICATE_MOBILE_DEBUG_HANDLE -O2 -fPIC -Wall -Wextra -Werror=return-type -Werror=non-virtual-dtor -Werror=bool-operation -Wnarrowing -Wno-missing-field-initializers -Wno-type-limits -Wno-array-bounds -Wno-unknown-pragmas -Wno-unused-parameter -Wno-unused-function -Wno-unused-result -Wno-strict-overflow -Wno-strict-aliasing -Wno-stringop-overflow -Wno-psabi -Wno-error=pedantic -Wno-error=old-style-cast -Wno-invalid-partial-specialization -Wno-unused-private-field -Wno-aligned-allocation-unavailable -Wno-missing-braces -fdiagnostics-color=always -faligned-new -Wno-unused-but-set-variable -Wno-maybe-uninitialized -fno-math-errno -fno-trapping-math -Werror=format -Werror=cast-function-type -Wno-stringop-overflow, LAPACK_INFO=mkl, PERF_WITH_AVX=1, PERF_WITH_AVX2=1, PERF_WITH_AVX512=1, TORCH_DISABLE_GPU_ASSERTS=ON, TORCH_VERSION=2.1.0, USE_CUDA=ON, USE_CUDNN=ON, USE_EXCEPTION_PTR=1, USE_GFLAGS=OFF, USE_GLOG=OFF, USE_MKL=ON, USE_MKLDNN=ON, USE_MPI=OFF, USE_NCCL=1, USE_NNPACK=ON, USE_OPENMP=ON, USE_ROCM=OFF, 
+
+    TorchVision: 0.16.0+cu118
+    OpenCV: 4.12.0
+    MMEngine: 0.10.7
+
+Runtime environment:
+    cudnn_benchmark: False
+    mp_cfg: {'mp_start_method': 'fork', 'opencv_num_threads': 0}
+    dist_cfg: {'backend': 'nccl'}
+    seed: 0
+    deterministic: False
+    Distributed launcher: none
+    Distributed training: False
+    GPU number: 1
+------------------------------------------------------------
+
+02/19 20:40:02 - mmengine - INFO - Config:
+CAMERA_CHANNELS = 80
+NUM_CAMERAS = 6
+TOTAL_CAMERA_CHANNELS = 480
+auto_scale_lr = dict(base_batch_size=16, enable=False)
+backend_args = None
+class_names = (
+    'Car',
+    'Pedestrian',
+    'Pedestrian with Object',
+    'Temporary Construction Barriers',
+    'Cones',
+)
+custom_hooks = [
+    dict(disable_after_epoch=25, type='DisableObjectSampleHook'),
+    dict(
+        clear_after_resume=True,
+        clear_interval=50,
+        empty_cache=True,
+        synchronize=False,
+        type='MemoryManagementHook'),
+]
+custom_imports = dict(
+    allow_failed_imports=False,
+    imports=[
+        'mmdet3d.datasets.pandaset_dataset',
+        'projects.BEVFusion.bevfusion',
+    ])
+data_prefix = dict(
+    CAM_BACK='samples/CAM_BACK',
+    CAM_BACK_LEFT='samples/CAM_BACK_LEFT',
+    CAM_BACK_RIGHT='samples/CAM_BACK_RIGHT',
+    CAM_FRONT='samples/CAM_FRONT',
+    CAM_FRONT_LEFT='samples/CAM_FRONT_LEFT',
+    CAM_FRONT_RIGHT='samples/CAM_FRONT_RIGHT',
+    pts='samples/LIDAR_TOP',
+    sweeps='sweeps/LIDAR_TOP')
+data_root = 'data/pandaset/'
+dataset_type = 'PandaSetDataset'
+db_sampler = dict(
+    classes=(
+        'Car',
+        'Pedestrian',
+        'Pedestrian with Object',
+        'Temporary Construction Barriers',
+        'Cones',
+    ),
+    data_root='data/pandaset/',
+    info_path='data/pandaset/pandaset_dbinfos_train.pkl',
+    points_loader=dict(
+        backend_args=None,
+        coord_type='LIDAR',
+        load_dim=4,
+        type='LoadPointsFromFile',
+        use_dim=[
+            0,
+            1,
+            2,
+            3,
+        ]),
+    prepare=dict(
+        filter_by_difficulty=[
+            -1,
+        ],
+        filter_by_min_points=dict({
+            'Car': 5,
+            'Cones': 5,
+            'Pedestrian': 5,
+            'Pedestrian with Object': 5,
+            'Temporary Construction Barriers': 5
+        })),
+    rate=0.0,
+    sample_groups=dict({
+        'Car': 2,
+        'Cones': 2,
+        'Pedestrian': 2,
+        'Pedestrian with Object': 2,
+        'Temporary Construction Barriers': 2
+    }),
+    type='DataBaseSampler')
+default_hooks = dict(
+    checkpoint=dict(
+        interval=1, max_keep_ckpts=5, save_best='auto', type='CheckpointHook'),
+    logger=dict(interval=50, type='LoggerHook'),
+    param_scheduler=dict(type='ParamSchedulerHook'),
+    sampler_seed=dict(type='DistSamplerSeedHook'),
+    timer=dict(type='IterTimerHook'),
+    visualization=dict(type='Det3DVisualizationHook'))
+default_scope = 'mmdet3d'
+env_cfg = dict(
+    cudnn_benchmark=False,
+    dist_cfg=dict(backend='nccl'),
+    mp_cfg=dict(mp_start_method='fork', opencv_num_threads=0))
+grid_size = [
+    1440,
+    1440,
+    41,
+]
+input_modality = dict(use_camera=True, use_lidar=True)
+launcher = 'none'
+load_from = None
+log_level = 'INFO'
+log_processor = dict(by_epoch=True, type='LogProcessor', window_size=50)
+lr = 0.00012
+metainfo = dict(
+    classes=(
+        'Car',
+        'Pedestrian',
+        'Pedestrian with Object',
+        'Temporary Construction Barriers',
+        'Cones',
+    ))
+model = dict(
+    bbox_head=dict(
+        auxiliary=True,
+        bbox_coder=dict(
+            code_size=10,
+            out_size_factor=8,
+            pc_range=[
+                -54.0,
+                -54.0,
+            ],
+            post_center_range=[
+                -61.2,
+                -61.2,
+                -10.0,
+                61.2,
+                61.2,
+                10.0,
+            ],
+            score_threshold=0.0,
+            type='TransFusionBBoxCoder',
+            voxel_size=[
+                0.075,
+                0.075,
+            ]),
+        bn_momentum=0.1,
+        common_heads=dict(
+            center=(
+                2,
+                2,
+            ),
+            dim=(
+                3,
+                2,
+            ),
+            height=(
+                1,
+                2,
+            ),
+            rot=(
+                2,
+                2,
+            ),
+            vel=(
+                2,
+                2,
+            )),
+        decoder_layer=dict(
+            cross_attn_cfg=dict(dropout=0.1, embed_dims=128, num_heads=8),
+            ffn_cfg=dict(
+                act_cfg=dict(inplace=True, type='ReLU'),
+                embed_dims=128,
+                feedforward_channels=256,
+                ffn_drop=0.1,
+                num_fcs=2),
+            norm_cfg=dict(type='LN'),
+            pos_encoding_cfg=dict(input_channel=2, num_pos_feats=128),
+            self_attn_cfg=dict(dropout=0.1, embed_dims=128, num_heads=8),
+            type='TransformerDecoderLayer'),
+        hidden_channel=128,
+        in_channels=512,
+        loss_bbox=dict(
+            loss_weight=0.25, reduction='mean', type='mmdet.L1Loss'),
+        loss_cls=dict(
+            alpha=0.25,
+            gamma=2.0,
+            loss_weight=1.0,
+            reduction='mean',
+            type='mmdet.FocalLoss',
+            use_sigmoid=True),
+        loss_heatmap=dict(
+            loss_weight=1.0, reduction='mean', type='mmdet.GaussianFocalLoss'),
+        nms_kernel_size=3,
+        num_classes=5,
+        num_decoder_layers=1,
+        num_heads=8,
+        num_proposals=200,
+        test_cfg=dict(
+            dataset='PandaSet',
+            grid_size=[
+                1440,
+                1440,
+                41,
+            ],
+            nms_type=None,
+            out_size_factor=8,
+            pc_range=[
+                -54.0,
+                -54.0,
+            ],
+            voxel_size=[
+                0.075,
+                0.075,
+            ]),
+        train_cfg=dict(
+            assign_method='hungarian',
+            assigner=dict(
+                cls_cost=dict(
+                    alpha=0.25,
+                    gamma=2.0,
+                    type='mmdet.FocalLossCost',
+                    weight=0.15),
+                iou_calculator=dict(coordinate='lidar', type='BboxOverlaps3D'),
+                iou_cost=dict(type='IoU3DCost', weight=0.25),
+                reg_cost=dict(type='BBoxBEVL1Cost', weight=0.25),
+                type='HungarianAssigner3D'),
+            code_weights=[
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                0.2,
+                0.2,
+            ],
+            dataset='PandaSet',
+            gaussian_overlap=0.1,
+            grid_size=[
+                1440,
+                1440,
+                41,
+            ],
+            min_radius=2,
+            out_size_factor=8,
+            point_cloud_range=[
+                -54.0,
+                -54.0,
+                -5.0,
+                54.0,
+                54.0,
+                3.0,
+            ],
+            pos_weight=-1,
+            voxel_size=[
+                0.075,
+                0.075,
+                0.2,
+            ]),
+        type='TransFusionHead'),
+    data_preprocessor=dict(
+        bgr_to_rgb=False,
+        mean=[
+            123.675,
+            116.28,
+            103.53,
+        ],
+        pad_size_divisor=32,
+        std=[
+            58.395,
+            57.12,
+            57.375,
+        ],
+        type='Det3DDataPreprocessor',
+        voxelize_cfg=dict(
+            max_num_points=10,
+            max_voxels=(
+                120000,
+                160000,
+            ),
+            point_cloud_range=[
+                -54.0,
+                -54.0,
+                -5.0,
+                54.0,
+                54.0,
+                3.0,
+            ],
+            voxel_size=[
+                0.075,
+                0.075,
+                0.2,
+            ],
+            voxelize_reduce=True)),
+    fusion_layer=dict(
+        in_channels=[
+            480,
+            256,
+        ], out_channels=256, type='ConvFuser'),
+    img_backbone=dict(
+        attn_drop_rate=0.0,
+        convert_weights=True,
+        depths=[
+            2,
+            2,
+            6,
+            2,
+        ],
+        drop_path_rate=0.2,
+        drop_rate=0.0,
+        embed_dims=96,
+        init_cfg=dict(
+            checkpoint=
+            'https://github.com/SwinTransformer/storage/releases/download/v1.0.0/swin_tiny_patch4_window7_224.pth',
+            type='Pretrained'),
+        mlp_ratio=4,
+        num_heads=[
+            3,
+            6,
+            12,
+            24,
+        ],
+        out_indices=[
+            1,
+            2,
+            3,
+        ],
+        patch_norm=True,
+        qk_scale=None,
+        qkv_bias=True,
+        type='mmdet.SwinTransformer',
+        window_size=7,
+        with_cp=False),
+    img_neck=dict(
+        act_cfg=dict(inplace=True, type='ReLU'),
+        in_channels=[
+            192,
+            384,
+            768,
+        ],
+        norm_cfg=dict(requires_grad=True, type='BN2d'),
+        num_outs=3,
+        out_channels=256,
+        start_level=0,
+        type='GeneralizedLSSFPN',
+        upsample_cfg=dict(align_corners=False, mode='bilinear')),
+    pts_backbone=dict(
+        conv_cfg=dict(bias=False, type='Conv2d'),
+        in_channels=256,
+        layer_nums=[
+            5,
+            5,
+        ],
+        layer_strides=[
+            1,
+            2,
+        ],
+        norm_cfg=dict(eps=0.001, momentum=0.01, type='BN'),
+        out_channels=[
+            128,
+            256,
+        ],
+        type='SECOND'),
+    pts_middle_encoder=dict(
+        block_type='basicblock',
+        encoder_channels=(
+            (
+                16,
+                16,
+                32,
+            ),
+            (
+                32,
+                32,
+                64,
+            ),
+            (
+                64,
+                64,
+                128,
+            ),
+            (
+                128,
+                128,
+            ),
+        ),
+        encoder_paddings=(
+            (
+                0,
+                0,
+                1,
+            ),
+            (
+                0,
+                0,
+                1,
+            ),
+            (
+                0,
+                0,
+                [
+                    1,
+                    1,
+                    0,
+                ],
+            ),
+            (
+                0,
+                0,
+            ),
+        ),
+        in_channels=4,
+        norm_cfg=dict(eps=0.001, momentum=0.01, type='BN1d'),
+        order=(
+            'conv',
+            'norm',
+            'act',
+        ),
+        sparse_shape=[
+            1440,
+            1440,
+            41,
+        ],
+        type='BEVFusionSparseEncoder'),
+    pts_neck=dict(
+        in_channels=[
+            128,
+            256,
+        ],
+        norm_cfg=dict(eps=0.001, momentum=0.01, type='BN'),
+        out_channels=[
+            256,
+            256,
+        ],
+        type='SECONDFPN',
+        upsample_cfg=dict(bias=False, type='deconv'),
+        upsample_strides=[
+            1,
+            2,
+        ],
+        use_conv_for_no_stride=True),
+    pts_voxel_encoder=dict(num_features=4, type='HardSimpleVFE'),
+    test_cfg=dict(pts=None),
+    train_cfg=dict(pts=None),
+    type='BEVFusion',
+    view_transform=dict(
+        dbound=[
+            1.0,
+            60.0,
+            0.5,
+        ],
+        downsample=2,
+        feature_size=[
+            24,
+            64,
+        ],
+        image_size=[
+            192,
+            512,
+        ],
+        in_channels=256,
+        out_channels=480,
+        type='DepthLSSTransform',
+        xbound=[
+            -54.0,
+            54.0,
+            0.3,
+        ],
+        ybound=[
+            -54.0,
+            54.0,
+            0.3,
+        ],
+        zbound=[
+            -10.0,
+            10.0,
+            20.0,
+        ]))
+optim_wrapper = dict(
+    clip_grad=dict(max_norm=35, norm_type=2),
+    optimizer=dict(lr=0.00012, type='AdamW', weight_decay=0.02),
+    type='AmpOptimWrapper')
+param_scheduler = [
+    dict(begin=0, by_epoch=False, end=300, start_factor=0.1, type='LinearLR'),
+    dict(
+        T_max=50,
+        begin=0,
+        by_epoch=True,
+        end=50,
+        eta_min_ratio=0.0001,
+        type='CosineAnnealingLR'),
+]
+point_cloud_range = [
+    -54.0,
+    -54.0,
+    -5.0,
+    54.0,
+    54.0,
+    3.0,
+]
+randomness = dict(deterministic=False, seed=0)
+resume = True
+test_cfg = dict(type='TestLoop')
+test_dataloader = dict(
+    batch_size=1,
+    dataset=dict(
+        ann_file='pandaset_infos_val.pkl',
+        box_type_3d='LiDAR',
+        data_prefix=dict(
+            CAM_BACK='samples/CAM_BACK',
+            CAM_BACK_LEFT='samples/CAM_BACK_LEFT',
+            CAM_BACK_RIGHT='samples/CAM_BACK_RIGHT',
+            CAM_FRONT='samples/CAM_FRONT',
+            CAM_FRONT_LEFT='samples/CAM_FRONT_LEFT',
+            CAM_FRONT_RIGHT='samples/CAM_FRONT_RIGHT',
+            img='',
+            pts='',
+            sweeps='sweeps/LIDAR_TOP'),
+        data_root='data/pandaset/',
+        filter_empty_gt=False,
+        metainfo=dict(
+            classes=(
+                'Car',
+                'Pedestrian',
+                'Pedestrian with Object',
+                'Temporary Construction Barriers',
+                'Cones',
+            )),
+        modality=dict(use_camera=True, use_lidar=True),
+        pipeline=[
+            dict(
+                backend_args=None,
+                color_type='color',
+                num_views=6,
+                to_float32=True,
+                type='BEVLoadMultiViewImageFromFiles'),
+            dict(
+                coord_type='LIDAR',
+                load_dim=4,
+                type='LoadPandaSetPointsFromPKL',
+                use_dim=4),
+            dict(type='PandaSetWorldToEgo'),
+            dict(
+                bot_pct_lim=[
+                    0.0,
+                    0.0,
+                ],
+                final_dim=[
+                    192,
+                    512,
+                ],
+                is_train=False,
+                rand_flip=False,
+                resize_lim=[
+                    0.5,
+                    0.5,
+                ],
+                rot_lim=[
+                    0.0,
+                    0.0,
+                ],
+                type='ImageAug3D'),
+            dict(
+                point_cloud_range=[
+                    -54.0,
+                    -54.0,
+                    -5.0,
+                    54.0,
+                    54.0,
+                    3.0,
+                ],
+                type='PointsRangeFilter'),
+            dict(
+                keys=[
+                    'img',
+                    'points',
+                    'gt_bboxes_3d',
+                    'gt_labels_3d',
+                ],
+                meta_keys=[
+                    'cam2img',
+                    'ori_cam2img',
+                    'lidar2cam',
+                    'lidar2img',
+                    'cam2lidar',
+                    'ori_lidar2img',
+                    'img_aug_matrix',
+                    'box_type_3d',
+                    'sample_idx',
+                    'lidar_path',
+                    'img_path',
+                    'num_pts_feats',
+                    'lidar_aug_matrix',
+                ],
+                type='Pack3DDetInputs'),
+        ],
+        serialize_data=False,
+        test_mode=True,
+        type='PandaSetDataset'),
+    drop_last=False,
+    num_workers=2,
+    persistent_workers=False,
+    sampler=dict(shuffle=False, type='DefaultSampler'))
+test_evaluator = dict(
+    ann_file='data/pandaset/pandaset_infos_val.pkl',
+    collect_device='cpu',
+    iou_thresholds=[
+        0.25,
+        0.5,
+        0.7,
+    ],
+    prefix='pandaset',
+    score_threshold=0.001,
+    type='PandaSetMetric')
+test_pipeline = [
+    dict(
+        backend_args=None,
+        color_type='color',
+        num_views=6,
+        to_float32=True,
+        type='BEVLoadMultiViewImageFromFiles'),
+    dict(
+        coord_type='LIDAR',
+        load_dim=4,
+        type='LoadPandaSetPointsFromPKL',
+        use_dim=4),
+    dict(type='PandaSetWorldToEgo'),
+    dict(
+        bot_pct_lim=[
+            0.0,
+            0.0,
+        ],
+        final_dim=[
+            192,
+            512,
+        ],
+        is_train=False,
+        rand_flip=False,
+        resize_lim=[
+            0.5,
+            0.5,
+        ],
+        rot_lim=[
+            0.0,
+            0.0,
+        ],
+        type='ImageAug3D'),
+    dict(
+        point_cloud_range=[
+            -54.0,
+            -54.0,
+            -5.0,
+            54.0,
+            54.0,
+            3.0,
+        ],
+        type='PointsRangeFilter'),
+    dict(
+        keys=[
+            'img',
+            'points',
+            'gt_bboxes_3d',
+            'gt_labels_3d',
+        ],
+        meta_keys=[
+            'cam2img',
+            'ori_cam2img',
+            'lidar2cam',
+            'lidar2img',
+            'cam2lidar',
+            'ori_lidar2img',
+            'img_aug_matrix',
+            'box_type_3d',
+            'sample_idx',
+            'lidar_path',
+            'img_path',
+            'num_pts_feats',
+            'lidar_aug_matrix',
+        ],
+        type='Pack3DDetInputs'),
+]
+train_cfg = dict(max_epochs=100, type='EpochBasedTrainLoop', val_interval=2)
+train_dataloader = dict(
+    batch_size=1,
+    dataset=dict(
+        ann_file='pandaset_infos_train.pkl',
+        box_type_3d='LiDAR',
+        data_prefix=dict(
+            CAM_BACK='samples/CAM_BACK',
+            CAM_BACK_LEFT='samples/CAM_BACK_LEFT',
+            CAM_BACK_RIGHT='samples/CAM_BACK_RIGHT',
+            CAM_FRONT='samples/CAM_FRONT',
+            CAM_FRONT_LEFT='samples/CAM_FRONT_LEFT',
+            CAM_FRONT_RIGHT='samples/CAM_FRONT_RIGHT',
+            img='',
+            pts='',
+            sweeps='sweeps/LIDAR_TOP'),
+        data_root='data/pandaset/',
+        filter_empty_gt=True,
+        metainfo=dict(
+            classes=(
+                'Car',
+                'Pedestrian',
+                'Pedestrian with Object',
+                'Temporary Construction Barriers',
+                'Cones',
+            )),
+        modality=dict(use_camera=True, use_lidar=True),
+        pipeline=[
+            dict(
+                backend_args=None,
+                color_type='color',
+                num_views=6,
+                to_float32=True,
+                type='BEVLoadMultiViewImageFromFiles'),
+            dict(
+                coord_type='LIDAR',
+                load_dim=4,
+                type='LoadPandaSetPointsFromPKL',
+                use_dim=4),
+            dict(
+                type='LoadAnnotations3D',
+                with_attr_label=False,
+                with_bbox_3d=True,
+                with_label_3d=True),
+            dict(type='PandaSetWorldToEgo'),
+            dict(
+                db_sampler=dict(
+                    classes=(
+                        'Car',
+                        'Pedestrian',
+                        'Pedestrian with Object',
+                        'Temporary Construction Barriers',
+                        'Cones',
+                    ),
+                    data_root='data/pandaset/',
+                    info_path='data/pandaset//pandaset_dbinfos_train.pkl',
+                    points_loader=dict(
+                        backend_args=None,
+                        coord_type='LIDAR',
+                        load_dim=4,
+                        type='LoadPointsFromFile',
+                        use_dim=[
+                            0,
+                            1,
+                            2,
+                            3,
+                        ]),
+                    prepare=dict(
+                        filter_by_difficulty=[
+                            -1,
+                        ],
+                        filter_by_min_points=dict({
+                            'Car':
+                            5,
+                            'Cones':
+                            5,
+                            'Pedestrian':
+                            5,
+                            'Pedestrian with Object':
+                            5,
+                            'Temporary Construction Barriers':
+                            5
+                        })),
+                    rate=0.0,
+                    sample_groups=dict({
+                        'Car': 2,
+                        'Cones': 2,
+                        'Pedestrian': 2,
+                        'Pedestrian with Object': 2,
+                        'Temporary Construction Barriers': 2
+                    })),
+                type='ObjectSample',
+                use_ground_plane=False),
+            dict(
+                rot_range=[
+                    -0.78539816,
+                    0.78539816,
+                ],
+                scale_ratio_range=[
+                    0.95,
+                    1.05,
+                ],
+                translation_std=0.5,
+                type='BEVFusionGlobalRotScaleTrans'),
+            dict(
+                bot_pct_lim=[
+                    0.0,
+                    0.0,
+                ],
+                final_dim=[
+                    192,
+                    512,
+                ],
+                is_train=True,
+                rand_flip=True,
+                resize_lim=[
+                    0.5,
+                    0.6,
+                ],
+                rot_lim=[
+                    -5.0,
+                    5.0,
+                ],
+                type='ImageAug3D'),
+            dict(type='BEVFusionRandomFlip3D'),
+            dict(
+                point_cloud_range=[
+                    -54.0,
+                    -54.0,
+                    -5.0,
+                    54.0,
+                    54.0,
+                    3.0,
+                ],
+                type='PointsRangeFilter'),
+            dict(
+                point_cloud_range=[
+                    -54.0,
+                    -54.0,
+                    -5.0,
+                    54.0,
+                    54.0,
+                    3.0,
+                ],
+                type='ObjectRangeFilter'),
+            dict(
+                fixed_prob=True,
+                max_epoch=24,
+                mode=1,
+                offset=False,
+                prob=0.0,
+                ratio=0.5,
+                rotate=1,
+                type='GridMask',
+                use_h=True,
+                use_w=True),
+            dict(type='PointShuffle'),
+            dict(
+                keys=[
+                    'points',
+                    'img',
+                    'gt_bboxes_3d',
+                    'gt_labels_3d',
+                    'gt_bboxes',
+                    'gt_labels',
+                ],
+                meta_keys=[
+                    'cam2img',
+                    'ori_cam2img',
+                    'lidar2cam',
+                    'lidar2img',
+                    'cam2lidar',
+                    'ori_lidar2img',
+                    'img_aug_matrix',
+                    'box_type_3d',
+                    'sample_idx',
+                    'lidar_path',
+                    'img_path',
+                    'transformation_3d_flow',
+                    'pcd_rotation',
+                    'pcd_scale_factor',
+                    'pcd_trans',
+                    'lidar_aug_matrix',
+                    'num_pts_feats',
+                ],
+                type='Pack3DDetInputs'),
+        ],
+        serialize_data=False,
+        test_mode=False,
+        type='PandaSetDataset'),
+    num_workers=4,
+    persistent_workers=True,
+    sampler=dict(shuffle=True, type='DefaultSampler'))
+train_pipeline = [
+    dict(
+        backend_args=None,
+        color_type='color',
+        num_views=6,
+        to_float32=True,
+        type='BEVLoadMultiViewImageFromFiles'),
+    dict(
+        coord_type='LIDAR',
+        load_dim=4,
+        type='LoadPandaSetPointsFromPKL',
+        use_dim=4),
+    dict(
+        type='LoadAnnotations3D',
+        with_attr_label=False,
+        with_bbox_3d=True,
+        with_label_3d=True),
+    dict(type='PandaSetWorldToEgo'),
+    dict(
+        db_sampler=dict(
+            classes=(
+                'Car',
+                'Pedestrian',
+                'Pedestrian with Object',
+                'Temporary Construction Barriers',
+                'Cones',
+            ),
+            data_root='data/pandaset/',
+            info_path='data/pandaset//pandaset_dbinfos_train.pkl',
+            points_loader=dict(
+                backend_args=None,
+                coord_type='LIDAR',
+                load_dim=4,
+                type='LoadPointsFromFile',
+                use_dim=[
+                    0,
+                    1,
+                    2,
+                    3,
+                ]),
+            prepare=dict(
+                filter_by_difficulty=[
+                    -1,
+                ],
+                filter_by_min_points=dict({
+                    'Car': 5,
+                    'Cones': 5,
+                    'Pedestrian': 5,
+                    'Pedestrian with Object': 5,
+                    'Temporary Construction Barriers': 5
+                })),
+            rate=0.0,
+            sample_groups=dict({
+                'Car': 2,
+                'Cones': 2,
+                'Pedestrian': 2,
+                'Pedestrian with Object': 2,
+                'Temporary Construction Barriers': 2
+            })),
+        type='ObjectSample',
+        use_ground_plane=False),
+    dict(
+        rot_range=[
+            -0.78539816,
+            0.78539816,
+        ],
+        scale_ratio_range=[
+            0.95,
+            1.05,
+        ],
+        translation_std=0.5,
+        type='BEVFusionGlobalRotScaleTrans'),
+    dict(
+        bot_pct_lim=[
+            0.0,
+            0.0,
+        ],
+        final_dim=[
+            192,
+            512,
+        ],
+        is_train=True,
+        rand_flip=True,
+        resize_lim=[
+            0.5,
+            0.6,
+        ],
+        rot_lim=[
+            -5.0,
+            5.0,
+        ],
+        type='ImageAug3D'),
+    dict(type='BEVFusionRandomFlip3D'),
+    dict(
+        point_cloud_range=[
+            -54.0,
+            -54.0,
+            -5.0,
+            54.0,
+            54.0,
+            3.0,
+        ],
+        type='PointsRangeFilter'),
+    dict(
+        point_cloud_range=[
+            -54.0,
+            -54.0,
+            -5.0,
+            54.0,
+            54.0,
+            3.0,
+        ],
+        type='ObjectRangeFilter'),
+    dict(
+        fixed_prob=True,
+        max_epoch=24,
+        mode=1,
+        offset=False,
+        prob=0.0,
+        ratio=0.5,
+        rotate=1,
+        type='GridMask',
+        use_h=True,
+        use_w=True),
+    dict(type='PointShuffle'),
+    dict(
+        keys=[
+            'points',
+            'img',
+            'gt_bboxes_3d',
+            'gt_labels_3d',
+            'gt_bboxes',
+            'gt_labels',
+        ],
+        meta_keys=[
+            'cam2img',
+            'ori_cam2img',
+            'lidar2cam',
+            'lidar2img',
+            'cam2lidar',
+            'ori_lidar2img',
+            'img_aug_matrix',
+            'box_type_3d',
+            'sample_idx',
+            'lidar_path',
+            'img_path',
+            'transformation_3d_flow',
+            'pcd_rotation',
+            'pcd_scale_factor',
+            'pcd_trans',
+            'lidar_aug_matrix',
+            'num_pts_feats',
+        ],
+        type='Pack3DDetInputs'),
+]
+val_cfg = dict(type='ValLoop')
+val_dataloader = dict(
+    batch_size=1,
+    dataset=dict(
+        ann_file='pandaset_infos_val.pkl',
+        box_type_3d='LiDAR',
+        data_prefix=dict(
+            CAM_BACK='samples/CAM_BACK',
+            CAM_BACK_LEFT='samples/CAM_BACK_LEFT',
+            CAM_BACK_RIGHT='samples/CAM_BACK_RIGHT',
+            CAM_FRONT='samples/CAM_FRONT',
+            CAM_FRONT_LEFT='samples/CAM_FRONT_LEFT',
+            CAM_FRONT_RIGHT='samples/CAM_FRONT_RIGHT',
+            img='',
+            pts='',
+            sweeps='sweeps/LIDAR_TOP'),
+        data_root='data/pandaset/',
+        filter_empty_gt=False,
+        metainfo=dict(
+            classes=(
+                'Car',
+                'Pedestrian',
+                'Pedestrian with Object',
+                'Temporary Construction Barriers',
+                'Cones',
+            )),
+        modality=dict(use_camera=True, use_lidar=True),
+        pipeline=[
+            dict(
+                backend_args=None,
+                color_type='color',
+                num_views=6,
+                to_float32=True,
+                type='BEVLoadMultiViewImageFromFiles'),
+            dict(
+                coord_type='LIDAR',
+                load_dim=4,
+                type='LoadPandaSetPointsFromPKL',
+                use_dim=4),
+            dict(type='PandaSetWorldToEgo'),
+            dict(
+                bot_pct_lim=[
+                    0.0,
+                    0.0,
+                ],
+                final_dim=[
+                    192,
+                    512,
+                ],
+                is_train=False,
+                rand_flip=False,
+                resize_lim=[
+                    0.5,
+                    0.5,
+                ],
+                rot_lim=[
+                    0.0,
+                    0.0,
+                ],
+                type='ImageAug3D'),
+            dict(
+                point_cloud_range=[
+                    -54.0,
+                    -54.0,
+                    -5.0,
+                    54.0,
+                    54.0,
+                    3.0,
+                ],
+                type='PointsRangeFilter'),
+            dict(
+                keys=[
+                    'img',
+                    'points',
+                    'gt_bboxes_3d',
+                    'gt_labels_3d',
+                ],
+                meta_keys=[
+                    'cam2img',
+                    'ori_cam2img',
+                    'lidar2cam',
+                    'lidar2img',
+                    'cam2lidar',
+                    'ori_lidar2img',
+                    'img_aug_matrix',
+                    'box_type_3d',
+                    'sample_idx',
+                    'lidar_path',
+                    'img_path',
+                    'num_pts_feats',
+                    'lidar_aug_matrix',
+                ],
+                type='Pack3DDetInputs'),
+        ],
+        serialize_data=False,
+        test_mode=True,
+        type='PandaSetDataset'),
+    drop_last=False,
+    num_workers=2,
+    persistent_workers=False,
+    sampler=dict(shuffle=False, type='DefaultSampler'))
+val_evaluator = dict(
+    ann_file='data/pandaset/pandaset_infos_val.pkl',
+    collect_device='cpu',
+    iou_thresholds=[
+        0.25,
+        0.5,
+        0.7,
+    ],
+    prefix='pandaset',
+    score_threshold=0.001,
+    type='PandaSetMetric')
+vis_backends = [
+    dict(type='LocalVisBackend'),
+]
+visualizer = dict(
+    name='visualizer',
+    type='Det3DLocalVisualizer',
+    vis_backends=[
+        dict(type='LocalVisBackend'),
+    ])
+voxel_size = [
+    0.075,
+    0.075,
+    0.2,
+]
+work_dir = 'work_dirs/first_train_first_all_enhance_with_50_epochs'
+
+02/19 20:40:04 - mmengine - INFO - Loads checkpoint by http backend from path: https://github.com/SwinTransformer/storage/releases/download/v1.0.0/swin_tiny_patch4_window7_224.pth
+02/19 20:40:04 - mmengine - INFO - Distributed training is not used, all SyncBatchNorm (SyncBN) layers in the model will be automatically reverted to BatchNormXd layers if they are used.
+02/19 20:40:04 - mmengine - INFO - Hooks will be executed in the following order:
+before_run:
+(VERY_HIGH   ) RuntimeInfoHook                    
+(NORMAL      ) MemoryManagementHook               
+(BELOW_NORMAL) LoggerHook                         
+ -------------------- 
+before_train:
+(VERY_HIGH   ) RuntimeInfoHook                    
+(NORMAL      ) IterTimerHook                      
+(VERY_LOW    ) CheckpointHook                     
+ -------------------- 
+before_train_epoch:
+(VERY_HIGH   ) RuntimeInfoHook                    
+(NORMAL      ) IterTimerHook                      
+(NORMAL      ) DistSamplerSeedHook                
+(NORMAL      ) DisableObjectSampleHook            
+ -------------------- 
+before_train_iter:
+(VERY_HIGH   ) RuntimeInfoHook                    
+(NORMAL      ) IterTimerHook                      
+ -------------------- 
+after_train_iter:
+(VERY_HIGH   ) RuntimeInfoHook                    
+(NORMAL      ) IterTimerHook                      
+(NORMAL      ) MemoryManagementHook               
+(BELOW_NORMAL) LoggerHook                         
+(LOW         ) ParamSchedulerHook                 
+(VERY_LOW    ) CheckpointHook                     
+ -------------------- 
+after_train_epoch:
+(NORMAL      ) IterTimerHook                      
+(LOW         ) ParamSchedulerHook                 
+(VERY_LOW    ) CheckpointHook                     
+ -------------------- 
+before_val:
+(VERY_HIGH   ) RuntimeInfoHook                    
+ -------------------- 
+before_val_epoch:
+(NORMAL      ) IterTimerHook                      
+ -------------------- 
+before_val_iter:
+(NORMAL      ) IterTimerHook                      
+ -------------------- 
+after_val_iter:
+(NORMAL      ) IterTimerHook                      
+(NORMAL      ) Det3DVisualizationHook             
+(BELOW_NORMAL) LoggerHook                         
+ -------------------- 
+after_val_epoch:
+(VERY_HIGH   ) RuntimeInfoHook                    
+(NORMAL      ) IterTimerHook                      
+(BELOW_NORMAL) LoggerHook                         
+(LOW         ) ParamSchedulerHook                 
+(VERY_LOW    ) CheckpointHook                     
+ -------------------- 
+after_val:
+(VERY_HIGH   ) RuntimeInfoHook                    
+ -------------------- 
+after_train:
+(VERY_HIGH   ) RuntimeInfoHook                    
+(VERY_LOW    ) CheckpointHook                     
+ -------------------- 
+before_test:
+(VERY_HIGH   ) RuntimeInfoHook                    
+ -------------------- 
+before_test_epoch:
+(NORMAL      ) IterTimerHook                      
+ -------------------- 
+before_test_iter:
+(NORMAL      ) IterTimerHook                      
+ -------------------- 
+after_test_iter:
+(NORMAL      ) IterTimerHook                      
+(NORMAL      ) Det3DVisualizationHook             
+(BELOW_NORMAL) LoggerHook                         
+ -------------------- 
+after_test_epoch:
+(VERY_HIGH   ) RuntimeInfoHook                    
+(NORMAL      ) IterTimerHook                      
+(BELOW_NORMAL) LoggerHook                         
+ -------------------- 
+after_test:
+(VERY_HIGH   ) RuntimeInfoHook                    
+ -------------------- 
+after_run:
+(BELOW_NORMAL) LoggerHook                         
+ -------------------- 
+
+============================================================
+PandaSet Dataset Camera Loading Statistics:
+============================================================
+Total samples: 2496
+Parse failures: 0
+  CAM_FRONT      : 2496/2496 (100.0%)
+  CAM_FRONT_RIGHT: 2496/2496 (100.0%)
+  CAM_FRONT_LEFT : 2496/2496 (100.0%)
+  CAM_BACK       : 2496/2496 (100.0%)
+  CAM_BACK_LEFT  : 2496/2496 (100.0%)
+  CAM_BACK_RIGHT : 2496/2496 (100.0%)
+
+First sample images keys: ['CAM_FRONT', 'CAM_FRONT_RIGHT', 'CAM_FRONT_LEFT', 'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_BACK_RIGHT']
+============================================================
+
+02/19 20:40:12 - mmengine - INFO - ------------------------------
+02/19 20:40:12 - mmengine - INFO - The length of training dataset: 2496
+02/19 20:40:12 - mmengine - INFO - The number of instances per category in the dataset:
++---------------------------------+--------+
+| category                        | number |
++---------------------------------+--------+
+| Car                             | 0      |
+| Pedestrian                      | 0      |
+| Pedestrian with Object          | 0      |
+| Temporary Construction Barriers | 0      |
+| Cones                           | 0      |
++---------------------------------+--------+
+02/19 20:40:12 - mmengine - INFO - load 29219 Car database infos in DataBaseSampler
+02/19 20:40:12 - mmengine - INFO - load 14805 Pedestrian database infos in DataBaseSampler
+02/19 20:40:12 - mmengine - INFO - load 5555 Pedestrian with Object database infos in DataBaseSampler
+02/19 20:40:12 - mmengine - INFO - load 2023 Temporary Construction Barriers database infos in DataBaseSampler
+02/19 20:40:12 - mmengine - INFO - load 909 Cones database infos in DataBaseSampler
+02/19 20:40:12 - mmengine - INFO - After filter database:
+02/19 20:40:12 - mmengine - INFO - load 29219 Car database infos in DataBaseSampler
+02/19 20:40:12 - mmengine - INFO - load 14805 Pedestrian database infos in DataBaseSampler
+02/19 20:40:12 - mmengine - INFO - load 5555 Pedestrian with Object database infos in DataBaseSampler
+02/19 20:40:12 - mmengine - INFO - load 2023 Temporary Construction Barriers database infos in DataBaseSampler
+02/19 20:40:12 - mmengine - INFO - load 909 Cones database infos in DataBaseSampler
+
+============================================================
+PandaSet Dataset Camera Loading Statistics:
+============================================================
+Total samples: 624
+Parse failures: 0
+  CAM_FRONT      :  624/624 (100.0%)
+  CAM_FRONT_RIGHT:  624/624 (100.0%)
+  CAM_FRONT_LEFT :  624/624 (100.0%)
+  CAM_BACK       :  624/624 (100.0%)
+  CAM_BACK_LEFT  :  624/624 (100.0%)
+  CAM_BACK_RIGHT :  624/624 (100.0%)
+
+First sample images keys: ['CAM_FRONT', 'CAM_FRONT_RIGHT', 'CAM_FRONT_LEFT', 'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_BACK_RIGHT']
+============================================================
+
+02/19 20:40:13 - mmengine - INFO - ------------------------------
+02/19 20:40:13 - mmengine - INFO - The length of test dataset: 624
+02/19 20:40:13 - mmengine - INFO - The number of instances per category in the dataset:
++---------------------------------+--------+
+| category                        | number |
++---------------------------------+--------+
+| Car                             | 0      |
+| Pedestrian                      | 0      |
+| Pedestrian with Object          | 0      |
+| Temporary Construction Barriers | 0      |
+| Cones                           | 0      |
++---------------------------------+--------+
+02/19 20:40:13 - mmengine - INFO - PandaSetMetric initialized (with EGO transform)
+02/19 20:40:13 - mmengine - INFO -   - ann_file: data/pandaset/pandaset_infos_val.pkl
+02/19 20:40:13 - mmengine - INFO -   - iou_thresholds: [0.25, 0.5, 0.7]
+02/19 20:40:13 - mmengine - INFO -   - score_threshold: 0.001
+02/19 20:40:13 - mmengine - INFO - Loading GT from data/pandaset/pandaset_infos_val.pkl
+02/19 20:40:13 - mmengine - INFO - Loaded 624 info entries
+02/19 20:40:20 - mmengine - INFO - GT Loading Summary:
+02/19 20:40:20 - mmengine - INFO -   - Loaded: 624
+02/19 20:40:20 - mmengine - INFO -   - Transformed to EGO: 624
+02/19 20:40:20 - mmengine - INFO -   - Empty: 0
+02/19 20:40:20 - mmengine - INFO -   - Failed: 0
+02/19 20:40:20 - mmengine - INFO -   - Total GT boxes: 96387
+02/19 20:40:20 - mmengine - INFO -   - Sample 030_0047 GT center mean (EGO): [-0.5, 9.6, -0.2]
+02/19 20:40:20 - mmengine - INFO -   - Sample 044_0061 GT center mean (EGO): [-3.2, -19.5, -2.7]
+02/19 20:40:20 - mmengine - INFO -   - Sample 027_0004 GT center mean (EGO): [4.0, 31.3, 1.8]
+02/19 20:40:20 - mmengine - INFO -   - Car: 63248 GT boxes
+02/19 20:40:20 - mmengine - INFO -   - Pedestrian: 20735 GT boxes
+02/19 20:40:20 - mmengine - INFO -   - Pedestrian with Object: 6344 GT boxes
+02/19 20:40:20 - mmengine - INFO -   - Temporary Construction Barriers: 3870 GT boxes
+02/19 20:40:20 - mmengine - INFO -   - Cones: 2190 GT boxes
+02/19 20:40:21 - mmengine - INFO - [MemoryHook] Cleared CUDA cache after resume to reduce fragmentation
+02/19 20:40:21 - mmengine - INFO - [MemoryHook] After resume - Allocated: 0.18GB, Reserved: 0.20GB
+02/19 20:40:21 - mmengine - INFO - Loads checkpoint by http backend from path: https://github.com/SwinTransformer/storage/releases/download/v1.0.0/swin_tiny_patch4_window7_224.pth
+02/19 20:40:21 - mmengine - INFO - Auto resumed from the latest checkpoint /home/ubuntu/mmdetection3d/work_dirs/first_train_first_all_enhance_with_50_epochs/epoch_50.pth.
+Loads checkpoint by local backend from path: /home/ubuntu/mmdetection3d/work_dirs/first_train_first_all_enhance_with_50_epochs/epoch_50.pth
+02/19 20:40:21 - mmengine - INFO - Load checkpoint from /home/ubuntu/mmdetection3d/work_dirs/first_train_first_all_enhance_with_50_epochs/epoch_50.pth
+02/19 20:40:21 - mmengine - INFO - resumed epoch: 50, iter: 124800
+02/19 20:40:21 - mmengine - WARNING - "FileClient" will be deprecated in future. Please use io functions in https://mmengine.readthedocs.io/en/latest/api/fileio.html#file-io
+02/19 20:40:21 - mmengine - WARNING - "HardDiskBackend" is the alias of "LocalBackend" and the former will be deprecated in future.
+02/19 20:40:21 - mmengine - INFO - Checkpoints will be saved to /home/ubuntu/mmdetection3d/work_dirs/first_train_first_all_enhance_with_50_epochs.
+/home/ubuntu/miniconda/envs/bevfusion/lib/python3.8/site-packages/mmdet/models/task_modules/builder.py:17: UserWarning: ``build_sampler`` would be deprecated soon, please use ``mmdet.registry.TASK_UTILS.build()`` 
+  warnings.warn('``build_sampler`` would be deprecated soon, please use '
+/home/ubuntu/miniconda/envs/bevfusion/lib/python3.8/site-packages/mmdet/models/task_modules/builder.py:39: UserWarning: ``build_assigner`` would be deprecated soon, please use ``mmdet.registry.TASK_UTILS.build()`` 
+  warnings.warn('``build_assigner`` would be deprecated soon, please use '
+/home/ubuntu/miniconda/envs/bevfusion/lib/python3.8/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3526.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/home/ubuntu/mmdetection3d/mmdet3d/evaluation/functional/kitti_utils/eval.py:10: NumbaDeprecationWarning: [1mThe 'nopython' keyword argument was not supplied to the 'numba.jit' decorator. The implicit default value for this argument is currently False, but it will be changed to True in Numba 0.59.0. See https://numba.readthedocs.io/en/stable/reference/deprecation.html#deprecation-of-object-mode-fall-back-behaviour-when-using-jit for details.[0m
+  def get_thresholds(scores: np.ndarray, num_gt, num_sample_pts=41):
+02/19 20:41:06 - mmengine - INFO - Epoch(train)  [51][  50/2496]  lr: 8.6923e-08  eta: 1 day, 7:00:46  time: 0.8950  data_time: 0.0212  memory: 7977  grad_norm: 8.3773  loss: 2.2443  loss_heatmap: 0.6014  layer_-1_loss_cls: 0.0879  layer_-1_loss_bbox: 1.5550  matched_ious: 0.3258
+02/19 20:41:51 - mmengine - INFO - Epoch(train)  [51][ 100/2496]  lr: 8.6923e-08  eta: 1 day, 7:03:16  time: 0.8981  data_time: 0.0068  memory: 8012  grad_norm: 9.1944  loss: 2.1064  loss_heatmap: 0.5895  layer_-1_loss_cls: 0.0911  layer_-1_loss_bbox: 1.4257  matched_ious: 0.3980
+02/19 20:42:36 - mmengine - INFO - Epoch(train)  [51][ 150/2496]  lr: 8.6923e-08  eta: 1 day, 7:12:42  time: 0.9112  data_time: 0.0071  memory: 8088  grad_norm: 8.8958  loss: 2.3775  loss_heatmap: 0.6216  layer_-1_loss_cls: 0.0910  layer_-1_loss_bbox: 1.6650  matched_ious: 0.3851
+02/19 20:43:20 - mmengine - INFO - Exp name: bevfusion_pandaset_all_cameras_20260219_204000
+02/19 20:43:20 - mmengine - INFO - Epoch(train)  [51][ 200/2496]  lr: 8.6923e-08  eta: 1 day, 6:51:33  time: 0.8621  data_time: 0.0070  memory: 8084  grad_norm: inf  loss: 2.0296  loss_heatmap: 0.5990  layer_-1_loss_cls: 0.0876  layer_-1_loss_bbox: 1.3429  matched_ious: 0.3126
+02/19 20:43:21 - mmengine - INFO - [MemoryHook] Iter 125000: Allocated: 0.55GB, Reserved: 0.72GB
+02/19 20:44:05 - mmengine - INFO - Epoch(train)  [51][ 250/2496]  lr: 8.6923e-08  eta: 1 day, 6:55:01  time: 0.9017  data_time: 0.0071  memory: 7984  grad_norm: 7.6723  loss: 2.1518  loss_heatmap: 0.5889  layer_-1_loss_cls: 0.0913  layer_-1_loss_bbox: 1.4716  matched_ious: 0.4573
+02/19 20:44:51 - mmengine - INFO - Epoch(train)  [51][ 300/2496]  lr: 8.6923e-08  eta: 1 day, 7:02:53  time: 0.9185  data_time: 0.0072  memory: 7999  grad_norm: 7.9975  loss: 2.1728  loss_heatmap: 0.6130  layer_-1_loss_cls: 0.0921  layer_-1_loss_bbox: 1.4677  matched_ious: 0.5180
+02/19 20:45:34 - mmengine - INFO - Epoch(train)  [51][ 350/2496]  lr: 8.6923e-08  eta: 1 day, 6:54:09  time: 0.8708  data_time: 0.0070  memory: 8042  grad_norm: 8.3804  loss: 2.4211  loss_heatmap: 0.6056  layer_-1_loss_cls: 0.0910  layer_-1_loss_bbox: 1.7245  matched_ious: 0.2642
+02/19 20:46:18 - mmengine - INFO - Epoch(train)  [51][ 400/2496]  lr: 8.6923e-08  eta: 1 day, 6:47:15  time: 0.8702  data_time: 0.0070  memory: 7994  grad_norm: 9.1501  loss: 2.0946  loss_heatmap: 0.6520  layer_-1_loss_cls: 0.0890  layer_-1_loss_bbox: 1.3535  matched_ious: 0.4260
+02/19 20:47:02 - mmengine - INFO - Epoch(train)  [51][ 450/2496]  lr: 8.6923e-08  eta: 1 day, 6:44:52  time: 0.8838  data_time: 0.0071  memory: 8069  grad_norm: 8.0208  loss: 2.1450  loss_heatmap: 0.6588  layer_-1_loss_cls: 0.0961  layer_-1_loss_bbox: 1.3901  matched_ious: 0.4559
+02/19 20:47:46 - mmengine - INFO - Epoch(train)  [51][ 500/2496]  lr: 8.6923e-08  eta: 1 day, 6:43:22  time: 0.8866  data_time: 0.0070  memory: 8070  grad_norm: 8.5733  loss: 2.0682  loss_heatmap: 0.5675  layer_-1_loss_cls: 0.0893  layer_-1_loss_bbox: 1.4114  matched_ious: 0.4269
+02/19 20:48:29 - mmengine - INFO - Epoch(train)  [51][ 550/2496]  lr: 8.6923e-08  eta: 1 day, 6:36:02  time: 0.8548  data_time: 0.0072  memory: 7934  grad_norm: 8.7287  loss: 1.9194  loss_heatmap: 0.5880  layer_-1_loss_cls: 0.0911  layer_-1_loss_bbox: 1.2403  matched_ious: 0.4557
+02/19 20:49:12 - mmengine - INFO - Epoch(train)  [51][ 600/2496]  lr: 8.6923e-08  eta: 1 day, 6:32:21  time: 0.8695  data_time: 0.0073  memory: 8076  grad_norm: 7.7498  loss: 2.0015  loss_heatmap: 0.5315  layer_-1_loss_cls: 0.0844  layer_-1_loss_bbox: 1.3856  matched_ious: 0.6990
+02/19 20:49:57 - mmengine - INFO - Epoch(train)  [51][ 650/2496]  lr: 8.6923e-08  eta: 1 day, 6:31:04  time: 0.8817  data_time: 0.0069  memory: 8037  grad_norm: 8.0519  loss: 1.9464  loss_heatmap: 0.5644  layer_-1_loss_cls: 0.0889  layer_-1_loss_bbox: 1.2931  matched_ious: 0.4394
+02/19 20:50:40 - mmengine - INFO - Epoch(train)  [51][ 700/2496]  lr: 8.6923e-08  eta: 1 day, 6:29:23  time: 0.8786  data_time: 0.0069  memory: 8040  grad_norm: 9.3974  loss: 2.3611  loss_heatmap: 0.6972  layer_-1_loss_cls: 0.0920  layer_-1_loss_bbox: 1.5719  matched_ious: 0.2270
+02/19 20:50:41 - mmengine - INFO - [MemoryHook] Iter 125500: Allocated: 0.55GB, Reserved: 0.72GB
+02/19 20:51:24 - mmengine - INFO - Epoch(train)  [51][ 750/2496]  lr: 8.6923e-08  eta: 1 day, 6:28:02  time: 0.8800  data_time: 0.0069  memory: 8064  grad_norm: 8.3385  loss: 2.4004  loss_heatmap: 0.6473  layer_-1_loss_cls: 0.0965  layer_-1_loss_bbox: 1.6566  matched_ious: 0.3073
+02/19 20:52:10 - mmengine - INFO - Epoch(train)  [51][ 800/2496]  lr: 8.6923e-08  eta: 1 day, 6:30:56  time: 0.9123  data_time: 0.0071  memory: 8004  grad_norm: 8.9218  loss: 2.6556  loss_heatmap: 0.7066  layer_-1_loss_cls: 0.0926  layer_-1_loss_bbox: 1.8564  matched_ious: 0.3192
+02/19 20:52:56 - mmengine - INFO - Epoch(train)  [51][ 850/2496]  lr: 8.6923e-08  eta: 1 day, 6:33:35  time: 0.9138  data_time: 0.0070  memory: 8054  grad_norm: 7.6016  loss: 2.0783  loss_heatmap: 0.5895  layer_-1_loss_cls: 0.0840  layer_-1_loss_bbox: 1.4048  matched_ious: 0.4949
+02/19 20:53:41 - mmengine - INFO - Epoch(train)  [51][ 900/2496]  lr: 8.6923e-08  eta: 1 day, 6:35:09  time: 0.9077  data_time: 0.0070  memory: 8003  grad_norm: 7.9248  loss: 2.2512  loss_heatmap: 0.5376  layer_-1_loss_cls: 0.0908  layer_-1_loss_bbox: 1.6228  matched_ious: 0.5182
